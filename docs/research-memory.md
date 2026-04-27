@@ -27,7 +27,7 @@ This is the third tier of the memory system, specific to research-heavy projects
 | Spectral range | 380-2500 nm |
 | Spectral sampling | 5 nm |
 | FWHM | 5.5 nm |
-| GSD | 30 m (actual 32.58-39.12 m) |
+| GSD | 30 m nominal (actual 32-50 m, varies with collection geometry) |
 | Swath width | 18-24 km (nadir ~19 km) |
 | SNR (2200 nm) | 310-655 (mode-dependent, 4 sensitivity modes) |
 | Atmospheric correction | ISOFIT v2.9.5 (~1% RMSE reflectance accuracy) |
@@ -78,9 +78,29 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 | Immediate post-fire | ~Late Jan 2025 |
 | Early recovery | ~Feb-Mar 2025 |
 | Recovery monitoring | ~Apr-Jul 2025 |
-| Products available | Basic Radiance + Ortho Surface Reflectance |
-| Access | Static STAC catalog (no API), pystac traversal |
-| Status | Scene IDs need STAC catalog query to confirm |
+| Products confirmed | Basic Radiance HDF5 + Basic Beta UDM (cloud mask) |
+| Products claimed | Ortho Surface Reflectance (NOT confirmed for fire collection -- verify!) |
+| Access | Static STAC catalog (no API), pystac traversal, no auth required |
+| Storage | GCS: storage.googleapis.com/open-cogs/planet-stac/ |
+| Status | 11 scenes across 7 dates identified (see data access report) |
+
+### LA Fire Scene Inventory (11 scenes, 7 dates)
+
+| Scene ID | Date | GSD (m) | Phase |
+|----------|------|---------|-------|
+| `20241215_185916_33_4001` | 2024-12-15 | 37.45 | PRE-FIRE (23 days before) |
+| `20250123_185507_64_4001` | 2025-01-23 | 39.03 | POST-FIRE (16 days after) |
+| `20250123_185518_92_4001` | 2025-01-23 | ~39 | POST-FIRE (adjacent strip) |
+| `20250407_192235_24_4001` | 2025-04-07 | 50.22 | RECOVERY 3mo |
+| `20250407_192229_16_4001` | 2025-04-07 | ~50 | RECOVERY 3mo (adjacent) |
+| `20250726_192343_21_4001` | 2025-07-26 | 38.35 | RECOVERY 6mo |
+| `20250726_192422_87_4001` | 2025-07-26 | ~38 | RECOVERY 6mo (adjacent) |
+| `20250724_190927_83_4001` | 2025-07-24 | ~38 | RECOVERY 6mo |
+| `20250902_190116_02_4001` | 2025-09-02 | TBD | LATE RECOVERY / N. Arizona? |
+| `20250902_190121_86_4001` | 2025-09-02 | TBD | LATE RECOVERY / N. Arizona? |
+| `20250920_193207_61_4001` | 2025-09-20 | 34 | N. Arizona confirmed |
+
+**Critical pair:** Dec 15 pre-fire + Jan 23 post-fire (brackets Palisades + Eaton fires)
 
 ### Cross-Validation Data
 
@@ -235,6 +255,7 @@ HyperCoast (HDF5 -> xarray) -> numpy bridge -> SPy / MESMA / spyndex
 
 | ID | Issue | Impact | Mitigation |
 |----|-------|--------|------------|
+| B0 | **Surface reflectance not confirmed for fire collection** | **Critical** | Verify by crawling STAC; if absent, evaluate ISOFIT self-application or radiance indices |
 | B1 | HyperCoast Basic products are ungridded | High | Use Ortho products only |
 | B2 | MESMA scalability at 426 bands untested | Medium | Test small subset; MNF reduction; HySUPP fallback |
 | B3 | Static STAC catalog (no /search endpoint) | Low | pystac traversal; cache locally |
@@ -313,7 +334,7 @@ Three-tier approach (recommended: Tier 1 + Tier 2 for competition):
 
 ### Open
 
-7. Exact scene IDs and dates for LA fire collection -- requires STAC catalog query.
+7. ~~Exact scene IDs and dates for LA fire collection~~ **RESOLVED:** 11 scenes across 7 dates. See scene inventory above.
 8. MESMA performance at 426 bands -- needs empirical testing on small spatial subset.
 9. AVIRIS-3 Eaton Fire data public availability -- confirm ORNL DAAC access.
 10. Globe-LFMC 2.0 coverage in LA region -- check for SoCal chaparral observations.
