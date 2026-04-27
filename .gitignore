@@ -35,3 +35,6 @@ data/downloads/
 # Secrets
 .env
 *.key
+
+# Manually-staged research PDFs (license varies — opt in by removing this rule)
+research/pdfs/*.pdf
