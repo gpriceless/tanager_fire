@@ -2,7 +2,7 @@
 
 ## Verdict: READY
 
-All dependencies verified, architecture sound, tasks properly scoped. Three should-fix items noted below (not blocking).
+All dependencies verified, architecture sound, tasks properly scoped. Open questions resolved. Three should-fix items noted below (not blocking).
 
 ## Parallelism
 
@@ -25,6 +25,14 @@ All dependencies verified, architecture sound, tasks properly scoped. Three shou
 2. **Data directory convention:** `data/raw/fire/` with `.gitkeep`. Existing `.gitignore` already covers `data/raw/`. Env override via `TANAGER_DATA_DIR`. Files use `.h5` extension.
 3. **SPy vs mesma package:** Confirmed deferred to Phase 3. Phase 2 only needs SPy for band math and indices.
 
+## Enrichment Changes (this pass)
+
+1. **Added `tests/test_io.py` task** — spec has 4 scenarios for io.py (load scene, band subset, spatial info, invalid file) but Track F had no io test. Added mocked test covering all scenarios.
+2. **Added network dependency annotations** — every section and verify task now has `<!-- network: -->` tags indicating whether internet access is required.
+3. **Added scipy dependency note** — continuum removal uses `scipy.spatial.ConvexHull`; noted in task gotcha and engineering-memory.md dependencies.
+4. **Added open questions RESOLVED section** — tasks.md header now explicitly records resolved answers.
+5. **Updated parallel safety check for Wave 3** — Track F file list now includes `tests/test_io.py`.
+
 ## Gotchas
 
 1. **Scene count ambiguity (11 vs 12):** Data access evaluation lists 11 named scene IDs, proposal says 12. The coder building config.py should query the live STAC catalog for the authoritative count and record it. Not blocking — the FIRE_SCENES list will be corrected at build time.
@@ -35,10 +43,14 @@ All dependencies verified, architecture sound, tasks properly scoped. Three shou
 
 4. **Continuum removal floating-point:** Convex hull continuum removal can produce values slightly > 1.0 at hull vertices. Clip to [0, 1].
 
-5. **Circular dependency risk:** masks.py will import ndwi from spectral.py. This is fine as long as spectral.py never imports from masks.py. This constraint is documented.
+5. **Circular dependency risk:** masks.py will import ndwi from spectral.py. This is fine as long as spectral.py never imports from masks.py. This constraint is documented in engineering-memory.md.
 
 6. **spyndex version drift:** Research noted spyndex 0.6.0 but current latest is 0.10.0. The spyndex package is used as a reference/validation tool, not a core dependency for index computation (we compute indices directly). No version conflict.
+
+7. **scipy dependency:** continuum_removal needs `scipy.spatial.ConvexHull`. scipy must be added to pyproject.toml dependencies. Noted in the continuum_removal task.
 
 ## Dependency Addition
 
 Added `h5py` to the dependency list. Required for masks.py cloud_mask function to read beta_cirrus_mask from raw HDF5 files when HyperCoast doesn't expose it.
+
+Added `scipy` to the dependency list. Required for spectral.py continuum_removal function (ConvexHull).

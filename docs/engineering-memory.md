@@ -5,7 +5,7 @@
 **Location:** `/docs/engineering-memory.md`
 **Owner:** Engineering Manager (Crenshaw)
 **Updated:** 2026-04-27
-**Version:** 1.1
+**Version:** 2.0 (002-data-pipeline enrichment)
 
 ---
 
@@ -23,74 +23,73 @@ This document is the Engineering Manager's working memory. It tracks:
 
 ## Architecture Overview
 
-### Status: Pre-implementation (002-data-pipeline approved)
+### Status: Phase 2 — Data Pipeline (002-data-pipeline)
 
-No code exists yet. The first implementation (002-data-pipeline) will create:
+Python package at `src/tanager/`, editable install via `pip install -e .`.
+
+### Module Registry
 
 ```
-tanager/
-├── src/tanager/          # Python package
-│   ├── __init__.py       # Version, lazy imports
-│   ├── config.py         # Sensor params, fire catalog, band aliases, data dir
-│   ├── catalog.py        # STAC catalog discovery + download (pystac)
-│   ├── io.py             # Tanager HDF5 I/O (HyperCoast wrapper)
-│   ├── spectral.py       # Band selection, bad band masking, indices, continuum removal
-│   └── masks.py          # No-data, cloud, water, combined masks
-├── tests/
-│   ├── conftest.py       # Synthetic dataset fixtures (426 bands, known signatures)
-│   ├── test_spectral.py  # Band ops, indices, continuum removal tests
-│   ├── test_masks.py     # Mask function tests
-│   └── test_catalog.py   # STAC catalog tests (mocked HTTP)
-├── data/raw/fire/        # Downloaded HDF5 scenes (.h5, gitignored)
-├── notebooks/            # Competition deliverables (Phase 4)
-└── pyproject.toml        # Package config, deps
+src/tanager/
+├── __init__.py       # Package version, lazy public API imports
+├── config.py         # Sensor params (SENSOR), bad bands, fire scene catalog, band aliases, DATA_DIR
+├── catalog.py        # STAC catalog interface — list, filter, download fire scenes via pystac
+├── io.py             # Scene I/O — load HDF5 via HyperCoast read_tanager(), spatial info extraction
+├── spectral.py       # Band selection, bad band masking, spectral indices (NBR/NDVI/NDWI/dNBR), continuum removal
+└── masks.py          # No-data, cloud/cirrus, water body masking, combined mask application
+
+tests/
+├── conftest.py       # Synthetic 426-band xarray.Dataset fixtures with known spectral signatures
+├── test_spectral.py  # Band selection, bad bands, indices, continuum removal, div-by-zero
+├── test_masks.py     # No-data, cloud, water, combined mask tests
+├── test_catalog.py   # STAC browsing/filtering with mocked HTTP
+└── test_io.py        # Scene loading with mocked HyperCoast
 ```
-
-### Future Modules (Phase 3+)
-
-| Module | Purpose | Phase |
-|--------|---------|-------|
-| `fire.py` | MESMA burn severity, dNBR classification | Phase 3 |
-| `lfmc.py` | Live fuel moisture content estimation (PLSR, indices) | Phase 3 |
-| `validation.py` | Cross-validation against AVIRIS-3, BARC, Sentinel-2 | Phase 3 |
-| `viz.py` | Visualization helpers (leafmap, matplotlib) | Phase 4 |
-| `export.py` | OGC output (GeoPackage, GeoZarr, COG) | Phase 4 |
 
 ### Key Dependencies
 
 | Library | Purpose | Version Constraint | Notes |
 |---------|---------|-------------------|-------|
-| hypercoast | Tanager HDF5 I/O | >=0.22.0,<1.0 | `read_tanager()` — pin below 1.0, API may shift |
-| spectral (SPy) | Spectral algorithms | Latest (0.24) | MESMA, SAM, endmember ops (Phase 3) |
+| HyperCoast | Tanager HDF5 I/O | `>=0.22.0,<1.0` | `read_tanager()` — API may shift pre-1.0 |
+| spectral (SPy) | Spectral algorithms | Latest | MESMA, SAM, endmember extraction |
 | rasterio | Raster I/O | >=1.3 | Geospatial raster handling |
-| xarray | N-dim arrays | Latest | Core data structure |
+| xarray | N-dim arrays | Latest | Hyperspectral cube handling |
 | geopandas | Vector ops | >=0.12 | Output geometries |
-| scikit-learn | ML | Latest | PLSR, Random Forest (Phase 3) |
-| pystac | STAC catalog | Latest (1.14.3) | Static catalog — NOT pystac-client |
-| requests | HTTP | Latest | Scene downloads |
-| spyndex | Spectral indices | Latest (0.10.0) | Reference/validation, 232+ indices |
-| h5py | HDF5 access | Latest | Raw HDF5 reading (cloud mask, metadata) |
-| pytest | Testing | Latest | Dev dependency |
-| ruff | Linting | Latest | Dev dependency |
-| mypy | Type checking | Latest | Dev dependency |
+| pystac | STAC catalog | Latest | Static catalog traversal (NOT pystac-client) |
+| requests | HTTP downloads | Latest | Scene file downloads, no auth required |
+| spyndex | Spectral indices | Latest (0.10.0+) | Reference/validation, not core computation |
+| h5py | HDF5 access | Latest | Required for cloud_mask beta_cirrus_mask reading |
+| scikit-learn | ML | Latest | For Phase 3 PLSR/RF |
+| scipy | Scientific computing | Latest | ConvexHull for continuum removal |
+
+**Dev dependencies:** pytest, ruff, mypy
+
+### Data Convention
+
+- **Default data directory:** `data/raw/fire/` relative to project root
+- **Override:** `TANAGER_DATA_DIR` environment variable
+- **File extension:** `.h5` (HDF-EOS5), not `.hdf5`
+- **Storage:** ~480 MB per scene, ~6 GB for full fire collection (ortho SR only)
+- **gitignore:** `data/raw/` glob covers all raw data; explicit `*.h5` also added
 
 ---
 
 ## Architecture Decisions
 
-| Decision | Choice | Rationale | Date |
-|----------|--------|-----------|------|
-| Data format | xarray for hyperspectral cubes | 426 bands = N-dimensional, xarray is standard | 2026-04-27 |
-| I/O layer | HyperCoast wrapper | Already has `read_tanager()`, maintained by opengeos | 2026-04-27 |
-| Spectral analysis | SPy (spectral-python) | Mature, MESMA/SAM implementations | 2026-04-27 |
-| STAC client | pystac (static) | Planet catalog is static, no /search endpoint | 2026-04-27 |
-| HyperCoast pinning | >=0.22.0,<1.0 | Pre-1.0 API instability; research tested 0.20.2, latest 0.22.0 | 2026-04-27 |
-| Data directory | data/raw/fire/ + env override | .gitignore coverage, TANAGER_DATA_DIR env var | 2026-04-27 |
-| MESMA library | Deferred to Phase 3 | SPy vs mesma v1.0.8 — need empirical 426-band test first | 2026-04-27 |
-| Output format | GeoPackage + GeoZarr | OGC-interoperable, cloud-native | 2026-04-27 |
-| Notebooks | Jupyter | Competition deliverable format | 2026-04-27 |
-| Index computation | Direct implementation, not spyndex | Full control over band selection and NaN handling | 2026-04-27 |
-| Cloud mask source | h5py direct HDF5 read | HyperCoast may not expose beta_cirrus_mask field | 2026-04-27 |
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Package layout | `src/tanager/` (src layout) | Editable install, clean namespace |
+| Data format | xarray for hyperspectral cubes | 426 bands = N-dimensional, xarray is standard |
+| I/O layer | HyperCoast `read_tanager()` | Already handles HDF-EOS5 layout discovery |
+| STAC access | pystac (static catalog) | No STAC API exists — must use static catalog reader |
+| Spectral analysis | SPy (spectral-python) | Mature, MESMA/SAM implementations |
+| MESMA software | Deferred to Phase 3 | mesma v1.0.8 is primary candidate; HySUPP fallback. 426-band perf untested. |
+| Sensor config | SimpleNamespace (dot notation) | `SENSOR.n_bands` not `SENSOR["n_bands"]` |
+| Index computation | Direct band math (not spyndex) | Full control over band selection; spyndex for validation only |
+| Continuum removal | scipy ConvexHull | Standard approach; per-pixel via apply_ufunc |
+| Output format | GeoPackage + GeoZarr (Phase 4) | OGC-interoperable, cloud-native |
+| Notebooks | Jupyter (Phase 4) | Competition deliverable format |
+| HyperCoast version | `>=0.22.0,<1.0` | Floor at latest tested; cap at major version boundary |
 
 ---
 
@@ -100,68 +99,39 @@ tanager/
 - Always preserve wavelength metadata alongside pixel values
 - Use xarray DataArrays with `wavelength` coordinate, not raw numpy
 - Wavelengths in nanometers (nm), not micrometers
-- Band lookup via `.sel(wavelength=target, method="nearest")` — Tanager's 5nm spacing guarantees <2.5nm error
+- Band lookup by wavelength uses `method="nearest"` (5nm spacing = max 2.5nm error)
 
-### Module Import Pattern
-- `tanager.config` — static constants, no heavy imports
-- `tanager.catalog` — network I/O, isolated from analysis code
-- `tanager.io` — HyperCoast wrapper, thin adapter
-- `tanager.spectral` — pure computation on xarray, no I/O
-- `tanager.masks` — can import from spectral (one-way), never the reverse
+### Import Direction (dependency rule)
+- `masks.py` MAY import from `spectral.py` (for ndwi)
+- `spectral.py` MUST NOT import from `masks.py` (circular dependency)
+- `spectral.py` and `catalog.py` MAY import from `config.py`
+- `io.py` is independent (only imports HyperCoast)
 
-### Dependency Direction (ENFORCED)
-```
-config  <-- catalog
-config  <-- io
-config  <-- spectral
-spectral <-- masks    (water_mask uses ndwi)
-```
-No circular imports. masks.py may import from spectral.py but NOT vice versa.
+### Error Handling
+- Division by zero in normalized difference indices: return NaN, never Inf
+- Network failures (STAC catalog): catch and re-raise as ConnectionError with URL context
+- Invalid HDF5 files: catch and re-raise as ValueError with filepath context
+- Missing HDF5 fields (beta_cirrus_mask): log warning, return permissive default (all-True mask)
+
+### Logging
+- Use Python `logging` module, never `print()`
+- All functions that perform I/O or filtering should log at INFO level
+- Warnings for unexpected data shapes or missing fields
 
 ### Validation
 - Compare against Sentinel-2 dNBR as baseline
 - Use known fire perimeters (NIFC) for spatial validation
 - Report R2, RMSE, and bias for quantitative comparisons
 
-### Error Handling
-- Network errors: raise ConnectionError with URL context
-- Invalid files: raise ValueError with filepath context
-- Empty results: raise ValueError (e.g., no bands in range)
-- Missing metadata: return None or fallback value, log warning (don't error)
-
 ---
 
 ## Tech Debt Tracking
 
-| ID | Issue | Severity | Status | Notes |
-|----|-------|----------|--------|-------|
-| TD-1 | Scene count ambiguity (11 vs 12) | Low | Open | Data access eval lists 11, proposal says 12. Resolve at build time via live STAC query. |
-| TD-2 | spectral.py may need splitting | Low | Deferred | If spectral.py exceeds ~300 lines in Phase 3, split into spectral/bands.py, spectral/indices.py, spectral/continuum.py |
-| TD-3 | HyperCoast wavelength_range loading | Low | Documented | read_tanager() takes band indices, not wavelengths. io.py must translate. |
-
----
-
-## Known Constraints
-
-### HyperCoast Integration
-- `read_tanager()` returns xarray.Dataset with (wavelength, y, x) dims
-- `bands` parameter accepts integer indices, not wavelength values
-- Only works with Ortho products (Basic products are ungridded — use `grid_tanager()` first)
-- beta_cirrus_mask may not be exposed in xarray output — use h5py for raw HDF5 access
-
-### STAC Catalog
-- Static catalog, no /search endpoint
-- pystac (NOT pystac-client)
-- No authentication required
-- URL: https://www.planet.com/data/stac/tanager-core-imagery/catalog.json
-- Fire collection: catalog.get_child("fire")
-
-### Tanager File Format
-- HDF-EOS5 (.h5 extension, not .hdf5)
-- Internal path: /HDFEOS/SWATHS/HYP/Data_Fields/surface_reflectance
-- Dimensions: [bands, rows, cols] Float32
-- ~480 MB per scene per product
-- ~2 GB RAM per loaded scene
+| ID | Issue | Severity | Status |
+|----|-------|----------|--------|
+| TD-1 | Scene count ambiguity (11 vs 12 fire scenes) | Low | Will resolve at build time via live STAC query |
+| TD-2 | HyperCoast wavelength_range: must load-then-slice (no native wavelength filter) | Low | Documented in io.py gotcha |
+| TD-3 | cloud_mask may require direct h5py access (HyperCoast may not expose beta_cirrus_mask) | Medium | h5py added as dependency; fallback documented |
 
 ---
 
@@ -170,4 +140,4 @@ No circular imports. masks.py may import from spectral.py but NOT vice versa.
 | Date | Change | Status |
 |------|--------|--------|
 | 2026-04-27 | Project initialized | **DONE** |
-| 2026-04-27 | 002-data-pipeline reviewed by EM — READY | **DONE** |
+| 2026-04-27 | 002-data-pipeline tasks.md enriched (EM audit) | **DONE** |

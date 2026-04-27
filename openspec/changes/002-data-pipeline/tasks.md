@@ -1,10 +1,19 @@
 # Change: 002-data-pipeline
 
+## Open Questions — RESOLVED
+
+1. **HyperCoast version pinning:** `>=0.22.0,<1.0` — floor at latest tested, cap at major version.
+2. **Data directory convention:** `data/raw/fire/` in project root, override with `TANAGER_DATA_DIR` env var. Add `data/raw/fire/*.h5` to `.gitignore`.
+3. **SPy vs mesma package:** Phase 2 includes only `spectral` (SPy). MESMA package decision deferred to Phase 3.
+
+---
+
 ## Wave 1: Foundation
 <!-- execution: sequential -->
 
 ### Section 1: Project Scaffolding
 <!-- execution_mode: sequential -->
+<!-- network: none — all local file creation -->
 
 - [ ] Create `pyproject.toml` with project metadata, Python 3.10+ requirement, and all dependencies (hypercoast>=0.22.0,<1.0; spectral; rasterio; xarray; geopandas; scikit-learn; pystac; requests; spyndex; h5py) plus dev dependencies (pytest, ruff, mypy)
   <!-- files: pyproject.toml (new) -->
@@ -25,11 +34,12 @@
 
 - [ ] Create `data/raw/fire/.gitkeep` and add `data/raw/fire/*.h5` to `.gitignore`
   <!-- files: data/raw/fire/.gitkeep (new), .gitignore (modify — append data/raw/fire/*.h5) -->
-  <!-- gotcha: .gitignore already has `data/raw/` and `*.hdf5` patterns. Tanager files use .h5 extension (HDF-EOS5), not .hdf5. The existing `data/raw/` glob may already cover it, but adding the explicit .h5 pattern is safer and self-documenting. -->
+  <!-- gotcha: .gitignore already has `data/raw/` which covers all files under data/raw/fire/. It also has `*.hdf5` but NOT `*.h5`. Tanager files use .h5 extension (HDF-EOS5). The existing `data/raw/` glob already provides coverage, but adding the explicit `*.h5` pattern at top level is safer and self-documenting for files stored elsewhere. -->
   <!-- test: ls data/raw/fire/.gitkeep exists -->
 
 - [ ] Verify: `pip install -e .` succeeds and `import tanager` works
   <!-- verify: manual — run `pip install -e .` in a clean venv, then `python -c "from tanager.config import SENSOR; print(SENSOR.n_bands)"` -->
+  <!-- network: requires pip to resolve and download dependencies -->
 
 ## Wave 2: Data Access + Spectral Processing
 <!-- execution: parallel -->
@@ -43,6 +53,7 @@
 
 ### Track A: STAC Catalog
 <!-- execution_mode: sequential (within track) -->
+<!-- network: REQUIRED — tasks 1-5 can be coded offline, but task 6 (verify) requires internet to reach planet.com STAC catalog -->
 
 - [ ] Create `src/tanager/catalog.py` with `list_fire_scenes()` that traverses the static STAC catalog via pystac, returns scene items with ID, datetime, bbox, and asset keys
   <!-- files: src/tanager/catalog.py (new) -->
@@ -68,9 +79,11 @@
 
 - [ ] Verify: `catalog.list_fire_scenes()` returns items from the live STAC catalog
   <!-- verify: manual — requires network. Run `python -c "from tanager.catalog import list_fire_scenes; items = list_fire_scenes(); print(f'{len(items)} scenes found')"`. Expect 11-12 items. Record actual count and update FIRE_SCENES in config.py if needed. -->
+  <!-- network: REQUIRED — live STAC catalog query -->
 
 ### Track B: Scene I/O
 <!-- execution_mode: sequential (within track) -->
+<!-- network: none for coding — verify step requires a downloaded .h5 file (local) -->
 
 - [ ] Create `src/tanager/io.py` with `load_scene(filepath)` wrapping HyperCoast `read_tanager()`, returning xarray.Dataset with (wavelength, y, x) dims
   <!-- files: src/tanager/io.py (new) -->
@@ -90,10 +103,12 @@
   <!-- gotcha: catch OSError (h5py/HDF5 read errors) and any HyperCoast exceptions. Re-raise as ValueError with descriptive message including the filepath. -->
 
 - [ ] Verify: Load a downloaded fire scene, confirm 426 bands x spatial grid, wavelength coordinate spans 380-2500nm
-  <!-- verify: manual — requires a downloaded .h5 file. Run after Section 2 Track A verify step provides a file. -->
+  <!-- verify: manual — requires a downloaded .h5 file. Run after Track A verify step provides a file. -->
+  <!-- network: none — uses local file, but depends on Track A having downloaded a scene first -->
 
 ### Track C: Spectral Band Operations
 <!-- execution_mode: sequential (within track) -->
+<!-- network: none — all operations on in-memory xarray datasets -->
 
 - [ ] Create `src/tanager/spectral.py` with `select_bands(dataset, min_wl, max_wl)` for wavelength range selection
   <!-- files: src/tanager/spectral.py (new) -->
@@ -117,13 +132,14 @@
 
 - [ ] Verify: `mask_bad_bands()` on a 426-band dataset returns ~330-346 bands, wavelength coordinate is contiguous
   <!-- verify: can be tested with synthetic data from conftest.py fixture. Does not require real data. -->
+  <!-- network: none -->
 
 ## Wave 3: Indices, Masks, and Tests
 <!-- execution: parallel -->
 <!-- PARALLEL SAFETY CHECK
   Track D files: src/tanager/spectral.py (modify — indices + continuum)
   Track E files: src/tanager/masks.py (new)
-  Track F files: tests/conftest.py (new), tests/test_spectral.py (new), tests/test_masks.py (new), tests/test_catalog.py (new)
+  Track F files: tests/conftest.py (new), tests/test_spectral.py (new), tests/test_masks.py (new), tests/test_catalog.py (new), tests/test_io.py (new)
   Overlap: Track D modifies spectral.py, Track F tests spectral.py — Track F READS but does not MODIFY spectral.py. Track E creates masks.py, Track F tests masks.py — same read-only relationship.
   HOWEVER: Track F cannot be written until Track D and E are complete (tests reference functions that don't exist yet).
   Verdict: Track D + Track E are SAFE for parallel (file-disjoint). Track F MUST be sequential AFTER D and E.
@@ -131,6 +147,7 @@
 
 ### Track D: Spectral Indices and Continuum Removal
 <!-- execution_mode: sequential (within track) -->
+<!-- network: none — all operations on in-memory xarray datasets -->
 
 - [ ] Add `nbr(dataset)` computing (NIR_860 - SWIR_2200) / (NIR_860 + SWIR_2200), returning DataArray
   <!-- files: src/tanager/spectral.py (modify) -->
@@ -155,12 +172,15 @@
   <!-- files: src/tanager/spectral.py (modify) -->
   <!-- gotcha: convex hull continuum fitting: (1) extract reflectance spectrum for wavelength range, (2) compute upper convex hull of (wavelength, reflectance) points, (3) interpolate hull to all wavelengths, (4) divide reflectance by hull values. Use scipy.spatial.ConvexHull or an iterative approach. Result should be in [0, 1] but floating-point may produce values slightly > 1.0 at hull vertices — clip with np.minimum(result, 1.0). When wavelength_range is None, apply to full spectrum. -->
   <!-- gotcha: this must work per-pixel. For a spatial dataset, vectorize over (y, x) dimensions. Consider np.apply_along_axis or xarray.apply_ufunc for performance. -->
+  <!-- dep: add scipy to pyproject.toml dependencies if not already present — needed for ConvexHull -->
 
 - [ ] Verify: Compute NBR on a real fire scene, confirm values in [-1, 1] range, NaN only where masked
   <!-- verify: manual — requires downloaded scene. Can also be partially verified with synthetic data. -->
+  <!-- network: none — uses local file -->
 
 ### Track E: Masking Utilities
 <!-- execution_mode: sequential (within track) -->
+<!-- network: none — all operations on in-memory xarray datasets -->
 
 - [ ] Create `src/tanager/masks.py` with `nodata_mask(dataset, fill_value)` returning boolean DataArray (True=valid)
   <!-- files: src/tanager/masks.py (new) -->
@@ -182,10 +202,12 @@
 
 - [ ] Verify: Apply combined mask to a fire scene, confirm masked pixels are NaN and unmasked pixels retain original values
   <!-- verify: manual with real data, or with synthetic data using known mask regions. -->
+  <!-- network: none -->
 
 ### Track F: Test Suite (sequential — depends on Tracks D + E)
 <!-- execution_mode: sequential -->
 <!-- blocked_by: Track D (spectral indices), Track E (masks) -->
+<!-- network: none — all tests use synthetic data or mocked HTTP -->
 
 - [ ] Create `tests/conftest.py` with `synthetic_tanager_dataset()` fixture: 426 bands, 380-2500nm, 50x50 pixels, Float32 reflectance [0,1]
   <!-- files: tests/conftest.py (new) -->
@@ -207,5 +229,10 @@
   <!-- files: tests/test_catalog.py (new) -->
   <!-- pattern: use unittest.mock.patch or pytest-mock to mock pystac.Catalog.from_file(). Create mock STAC items with known IDs, datetimes, bboxes, and assets. Test list_fire_scenes returns all items, date filtering works, get_scene_metadata extracts correct fields, ConnectionError is raised when catalog is unreachable. -->
 
+- [ ] Create `tests/test_io.py` — test scene loading, band subsetting, spatial info extraction, and invalid file handling with mocked HyperCoast
+  <!-- files: tests/test_io.py (new) -->
+  <!-- pattern: use unittest.mock.patch to mock hypercoast.read_tanager(). Return a synthetic xarray.Dataset from the mock. Test load_scene returns correct dims (wavelength, y, x); load_scene with wavelength_range returns subset; get_spatial_info extracts CRS, bounds, resolution, shape; load_scene with invalid path raises ValueError. -->
+
 - [ ] Verify: `pytest tests/` passes with all tests green
   <!-- verify: automated — `pytest tests/ -v` should pass. -->
+  <!-- network: none — all tests use mocks or synthetic data -->
