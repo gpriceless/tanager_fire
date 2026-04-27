@@ -354,6 +354,48 @@ Three-tier approach (recommended: Tier 1 + Tier 2 for competition):
 
 ---
 
+## Competition T&C Compliance (Reviewed 2026-04-27)
+
+**Status:** Fully compliant. Full review at `research/competition-tc-compliance-review.md`.
+
+### Judging Criteria (100 pts + 15 tie-breaker)
+
+| Category | Points | Weight |
+|----------|--------|--------|
+| Scientific Integrity & Innovation | 30 | Methodology, novelty, limitations |
+| Application or Use Case | 30 | Relevance, feasibility, real-world impact |
+| Workflow & Tool Development | 20 | Clean code, reproducibility, STAC usage, open-source |
+| Visualization & Storytelling | 20 | Maps, plots, narrative, broad audience appeal |
+| Tie-breaker: Planet verticals/impact | +5 | Wildfire = eligible |
+| Tie-breaker: Tanager vs EMIT/PRISMA | +5 | Quantitative comparison required |
+| Tie-breaker: Open-source/AI-ML | +5 | New library or cutting-edge AI/ML |
+
+### Submission Requirements
+
+- **Required:** Tanager imagery from Open STAC catalog + one of: technical memo (1-3 pg), Jupyter notebooks, GitHub repo, slides, or video (<3 min)
+- **Optional:** Public repo with reproducibility docs, Zenodo data derivatives, figures/maps
+- **Third-party code:** Allowed if properly licensed (all our libs are MIT/BSD/Apache)
+- **One submission per participant** (team members may also submit individually)
+- **English only**
+- **Deadline:** August 31, 2026, 11:59 PM PST
+- **Submit via:** surveymonkey.com/r/tanager-competition (after registration)
+
+### Key IP Terms
+
+- We retain full IP ownership
+- Planet gets irrevocable royalty-free promotional license
+- Tanager data remains Planet's under CC license
+
+### Action Items
+
+- **Human must register** for competition (opened April 14, 2026)
+- Verify FRAMES SoCal library redistribution rights
+- Invest in visualization & storytelling (20% of score)
+- Plan open-source packaging for +5 tie-breaker
+- Include Tanager vs EMIT/PRISMA quantitative comparison for +5
+
+---
+
 ## Experiments Log
 
 | Date | Experiment | Result | Notes |
