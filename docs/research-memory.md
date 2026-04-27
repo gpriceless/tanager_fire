@@ -5,7 +5,7 @@
 **Location:** `/docs/research-memory.md`
 **Owner:** Tobler (Research Lead)
 **Updated:** 2026-04-27
-**Version:** 2.0 (Phase 1 literature review complete)
+**Version:** 2.1 (Endmember library research complete)
 
 ---
 
@@ -207,12 +207,14 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 
 ## Spectral Libraries & Reference Data
 
-| Resource | Purpose | Fire Relevance | Format |
-|----------|---------|----------------|--------|
-| USGS Spectral Library v7 | Minerals, soils, vegetation (1000+ spectra) | Heated soils, iron oxides, clays | ASCII (350-2500nm) |
-| ECOSTRESS Spectral Library | 3000+ spectra (plants, minerals) | 541 vegetation + 51 NPV spectra | SPy built-in DB support |
-| FRAMES Burn Severity Library | Fire-specific endmembers | **Primary**: char, ash, GV, NPV, soil from SoCal chaparral | ASCII (350-2500nm) |
-| Globe-LFMC 2.0 | 287,551 field LFMC observations | Ground truth for LFMC training | Database |
+| Resource | Purpose | Fire Relevance | Format | Spectra |
+|----------|---------|----------------|--------|---------|
+| USGS Spectral Library v7 | Minerals, soils, vegetation, organics | Char/charcoal (Organics ch.), heated soils/iron oxides (Soils ch.), chaparral veg incl. manzanita (Vegetation ch.) | SPECPR + ASCII, 350-2500nm at 1nm (s07ASD) | 1000+ |
+| ECOSTRESS Spectral Library v1.0 | 3400+ spectra (plants, minerals, NPV) | 541 vegetation VIS/SWIR + 51 NPV spectra. SPy native via EcostressDatabase | SQLite via SPy, 0.35-15.4µm | 3400+ |
+| FRAMES Burn Severity Library (SoCal) | Fire-specific field endmembers from chaparral | **Primary**: 7 char/ash, 36 GV (chamise, manzanita, ceanothus, sage, oak), 13 NPV, 10 soil. Old Fire + Simi Fire. | ASCII (350-2500nm) | 66 |
+| Globe-LFMC 2.0 | 287,551 field LFMC observations | Ground truth for LFMC training | Database | 287,551 |
+| spectral-libraries v1.1.3 | EAR/MASA/CoB endmember selection | Library pruning for MESMA | pip (Python) | N/A |
+| splib07-loader | Python loader for USGS v7 | Programmatic access to USGS spectra | pip (GitHub) | N/A |
 
 ### Fire Endmember Types (Recommended)
 
@@ -227,7 +229,11 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 6. **Ash (white/light)** -- complete combustion indicator, higher VNIR than char
 7. **Urban/Impervious** -- for wildland-urban interface pixels
 
-**Selection strategy:** In-CoB (count-based within-class) + uSZU band reduction per Roberts et al. (2018). Hybrid library: FRAMES + ECOSTRESS + image-derived endmembers from pre/post-fire Tanager scenes.
+**Target library size:** ~52-78 spectra after pruning (Char 10-15, Ash 3-5, PV 20-30, NPV 10-15, Soil 8-12, Shade 1).
+
+**Selection strategy:** In-CoB (count-based within-class) for initial selection + EAR/MASA joint pruning + uSZU band reduction per Roberts et al. (2018). Hybrid library: FRAMES (primary) + USGS v7 + ECOSTRESS + image-derived endmembers from pre/post-fire Tanager scenes. Implemented via `spectral-libraries` v1.1.3 EarMasaCob class.
+
+**Resampling:** SPy `BandResampler` with Gaussian FWHM convolution (1nm library → ~5nm Tanager band centers). Extract actual band centers from HDF5 metadata.
 
 ---
 
@@ -242,6 +248,8 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 | spyndex | 0.6.0 | 232+ spectral indices | **USE** | Any numpy array input |
 | splib07-loader | Current | USGS Spectral Library v7 | **USE** | Third-party, small but functional |
 | pystac | Current | STAC catalog traversal | **USE** | Static catalog -- use pystac, NOT pystac-client |
+| spectral-libraries | 1.1.3 | EAR/MASA/CoB endmember selection | **USE** | Same author as mesma. IES, CRES, MUSIC, AMUSES algorithms. |
+| pysptools | 0.15.0 | FCLS/NNLS unmixing, endmember extraction | **FALLBACK** | N-FINDR, PPI, FCLS. Unmaintained, Python 3.6 era. |
 
 ### Tool Integration Architecture
 
@@ -329,8 +337,8 @@ Three-tier approach (recommended: Tier 1 + Tier 2 for competition):
 
 ### Partially Resolved
 
-5. Which endmember spectra for LA fire vegetation? FRAMES library has SoCal chaparral. Supplement with image-derived endmembers from Tanager scenes.
-6. Optimal band subset for LFMC? SAI1200 (1200nm), SAI1660 (1660nm), NDWI variants identified. Full-spectrum PLSR for Tier 2.
+5. ~~Which endmember spectra for LA fire vegetation?~~ **RESOLVED:** FRAMES SoCal chaparral library (66 spectra: 7 char/ash, 36 GV, 13 NPV, 10 soil from Old Fire + Simi Fire) as primary. Supplemented by USGS v7 charcoal/heated soils and ECOSTRESS vegetation/NPV. Hybrid strategy with image-derived endmembers. In-CoB + EAR/MASA selection via spectral-libraries v1.1.3.
+6. ~~Optimal band subset for LFMC?~~ **RESOLVED:** SAI1200 (1200nm, R²cv=0.845 for EWT), SAI1660 (1660nm, R²cv=0.637 for FMC), NDWI variants. Full-spectrum PLSR for Tier 2.
 
 ### Open
 
@@ -340,6 +348,9 @@ Three-tier approach (recommended: Tier 1 + Tier 2 for competition):
 10. Globe-LFMC 2.0 coverage in LA region -- check for SoCal chaparral observations.
 11. LFMC below 60% nonlinear regime -- Roberts et al. (2006) found this; needs calibration attention.
 12. Can we obtain field CBI measurements for the LA fires?
+13. mesma v1.0.8 compatibility with Python 3.10+ and numpy 2.x — needs empirical testing before committing to pipeline.
+14. FRAMES SoCal library bulk download — verify if individual ASCII file scraping is needed or bulk archive exists.
+15. Ash vs. char spectral separation — only 7 combined spectra in FRAMES; may need supplementary lab measurements.
 
 ---
 
