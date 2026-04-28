@@ -5,7 +5,7 @@
 **Location:** `/docs/research-memory.md`
 **Owner:** Tobler (Research Lead)
 **Updated:** 2026-04-27
-**Version:** 2.1 (Endmember library research complete)
+**Version:** 2.2 (Phase 3 open questions resolved)
 
 ---
 
@@ -110,6 +110,7 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 | USGS Burn Severity Portal v11.0 | BARC maps for LA fires | 30 m | usgs.gov (April 2025 update) |
 | Globe-LFMC 2.0 | 287,551 field LFMC observations | Point | DOI: 10.1038/s41597-024-03159-6 |
 | Sentinel-2 dNBR | Broadband burn severity baseline | 10-20 m | Copernicus Open Access Hub |
+| Varga & Jones SoCal LFMC | 32-yr species-specific chaparral LFMC (chamise, sage, ceanothus) | 1 km / semi-monthly | Dryad (NetCDF, Dec 1987-Jun 2019) |
 
 ### Other Available Scenes
 
@@ -158,6 +159,7 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 | Quan et al. | 2021 | Lab | SAI970, SAI1200, SAI1660 indices | SAI1200: R2cv=0.845 (EWT); SAI1660: R2cv=0.637 (FMC) | **High** -- validated narrowband indices |
 | Yebra et al. | 2024 | Field+MODIS | Globe-LFMC 2.0: 287,551 field observations | Training dataset | **Critical** -- ground truth source |
 | Leite et al. | 2025 | Review | Next-gen spaceborne for fuel monitoring (EMIT, SBG, CHIME, Tanager) | Qualitative | **Critical** -- frames Tanager in context |
+| Varga & Jones | 2026 | Landsat+WRF | 32-yr species-specific SoCal chaparral LFMC; chamise MAE=9.68%, R²=0.76 | Training/validation | **High** -- direct SoCal ground truth for LFMC |
 | Qi et al. | 2014 | Various | PLSR R2=0.72-0.94 leaf level; dry mass confounds water | PLSR methodology | **High** -- cautionary wavelength interpretation |
 | Danson & Bowyer | 2004 | Various | GA-PLS R2=0.82-0.89; bands at 1144, 1304, 1670, 1750nm | Optimal SWIR bands | **High** -- key band selection |
 | Riano et al. | 2005 | Various | PROSPECT inversion for EWT+DM | RTM approach | **Moderate** -- RTM reference |
@@ -168,6 +170,7 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 - Quan et al. 2021: 10.1371/journal.pone.0249351
 - Globe-LFMC 2.0: 10.1038/s41597-024-03159-6
 - Leite et al. 2025: 10.1002/rse2.416
+- Varga & Jones 2026: 10.1038/s41597-026-06794-3 (Dryad data repository)
 
 ### Accuracy Comparison: Narrowband vs Broadband
 
@@ -243,7 +246,7 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 |------|---------|---------|---------|-------|
 | HyperCoast | 0.20.2 | Tanager data I/O | **USE** -- primary loader | `read_tanager()`, STAC search, leafmap viz. Ortho products only. |
 | Spectral Python (SPy) | 0.24 | Spectral analysis | **USE** -- most mature | SAM, BandResampler, ECOSTRESS DB. Needs numpy bridge from xarray. |
-| MESMA | 1.0.8 | Spectral unmixing | **USE with caution** | Last updated Nov 2020, 66 weekly downloads. Test at 426 bands. |
+| MESMA | 1.0.8 | Spectral unmixing | **USE** — confirmed compatible | Tested: Python 3.12 + numpy 2.4. API: `MesmaCore.execute()`. Image=(bands,pixels), Library=(bands,spectra). |
 | HySUPP | Current | 20+ unmixing algorithms | **FALLBACK** | Alternative if MESMA chokes on 426 bands |
 | spyndex | 0.6.0 | 232+ spectral indices | **USE** | Any numpy array input |
 | splib07-loader | Current | USGS Spectral Library v7 | **USE** | Third-party, small but functional |
@@ -344,12 +347,12 @@ Three-tier approach (recommended: Tier 1 + Tier 2 for competition):
 
 7. ~~Exact scene IDs and dates for LA fire collection~~ **RESOLVED:** 11 scenes across 7 dates. See scene inventory above.
 8. MESMA performance at 426 bands -- needs empirical testing on small spatial subset.
-9. AVIRIS-3 Eaton Fire data public availability -- confirm ORNL DAAC access.
-10. Globe-LFMC 2.0 coverage in LA region -- check for SoCal chaparral observations.
+9. ~~AVIRIS-3 Eaton Fire data public availability~~ **RESOLVED (2026-04-27):** Publicly available at ORNL DAAC. AVIRIS-3 L2A surface reflectance (DOI: 10.3334/ORNLDAAC/2357) has 511+ granules, date range 2023-07-05 to present. AVIRIS-3 flew over LA fires on Jan 10 and Jan 16, 2025 at 3-4m resolution. Published in GRL (DOI: 10.1029/2025GL118756): MESMA char/ash fraction mapping achieved 86.3% structural damage classification accuracy. Access via NASA Earthdata Search with free account. Search by flight line ID with wildcards in Granule IDs box.
+10. ~~Globe-LFMC 2.0 SoCal coverage~~ **RESOLVED (2026-04-27):** Strong SoCal coverage. Globe-LFMC 2.0 at Figshare (DOI: 10.6084/m9.figshare.c.6980418) has 287,551 observations across 2000+ sites in 15 countries, 1977-2023. Additionally, Varga & Jones (2026, Scientific Data 13:438) published a 32-year species-specific SoCal chaparral LFMC dataset with >10,000 observations covering chamise (new+old growth), black sage, and bigpod ceanothus. Available on Dryad as NetCDF, 1km semi-monthly resolution, Dec 1987-Jun 2019. Chamise model MAE=9.68%, R²=0.76. This is an excellent supplementary training/validation source.
 11. LFMC below 60% nonlinear regime -- Roberts et al. (2006) found this; needs calibration attention.
 12. Can we obtain field CBI measurements for the LA fires?
-13. mesma v1.0.8 compatibility with Python 3.10+ and numpy 2.x — needs empirical testing before committing to pipeline.
-14. FRAMES SoCal library bulk download — verify if individual ASCII file scraping is needed or bulk archive exists.
+13. ~~mesma v1.0.8 compatibility with Python 3.10+ and numpy 2.x~~ **RESOLVED (2026-04-27):** Empirically tested and confirmed working. mesma 1.0.8 installs and runs correctly with Python 3.12.3 + numpy 2.4.4. Full MESMA unmixing test passed: accurate fraction recovery on synthetic 2-class mixtures. API: `MesmaCore.execute(image, library, look_up_table, em_per_class, constraints)`. Image format: (n_bands, n_pixels). Library format: (n_bands, n_spectra). Look-up table: `{level: {class_model_tuple: np.array([[em_indices]])}}}`. No HySUPP fallback needed.
+14. ~~FRAMES SoCal library bulk download~~ **RESOLVED (2026-04-27):** No bulk download archive exists. Individual ASCII file downloads only from frames.gov/assessing-burn-severity/spectral-library/southern-california. 67 spectra: 37 green vegetation, 13 NPV, 10 mineral soil/rock, 7 char/ash. Each spectrum has a digital photo, spectral graph (.jpg), and ASCII data file. Will need a download script to automate retrieval.
 15. Ash vs. char spectral separation — only 7 combined spectra in FRAMES; may need supplementary lab measurements.
 
 ---
