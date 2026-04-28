@@ -126,3 +126,43 @@ Actual:
 - Section 10: 3 tasks (incl verify)
 
 Total: 55 tasks across 4 waves. This is higher than PQ's original 35 because enrichment expanded verification steps and added explicit format validation tasks. Each task is roughly one coder focus area — reasonable scope.
+
+## mesma v1.0.8 Compatibility Verification (2026-04-28)
+
+**Test environment:**
+- Python: 3.12.3
+- numpy: 2.4.4
+- OS: Linux 6.17.0-20-generic (Ubuntu)
+
+**Test 1 — pip install:** PASS
+
+`pip install mesma>=1.0.8` completed successfully; `mesma-1.0.8-py3-none-any.whl` installed without errors. Note: the package is pure-Python (no compiled C extensions), so there is no numpy ABI compilation step. Install will not fail due to ABI mismatch.
+
+**Test 2 — import:** PASS (with caveat)
+
+`import mesma` succeeds. `mesma.__version__` does not exist (AttributeError) — the package has no version attribute in `__init__.py`. `from mesma.core.mesma import MesmaCore, MesmaModels` imports cleanly.
+
+**Test 3 — functional smoke test:** PARTIAL PASS / SOFT-FAIL on shade path
+
+Core unmixing works. A synthetic 5×5 image (10 bands, 60% pv + 40% soil mixture) was unmixed using `MesmaCore.execute()`. Recovered fractions: pv=0.6000, soil=0.4000, shade=0.0000, RMSE=0.0 (exact recovery). The core MESMA algorithm is numerically correct under Python 3.12 / numpy 2.4.4.
+
+**However, `shade_spectrum` parameter is broken under numpy 2.x:**
+
+`_subtract_shade()` attempts `self.image_as_line - shade_spectrum` where `image_as_line` shape is `(n_bands, n_pixels)` and `shade_spectrum` shape is `(n_bands,)`. In numpy 1.x this subtracted shade band-wise (treating `(n_bands,)` as a column). In numpy 2.x this raises `ValueError: operands could not be broadcast together with shapes (10,25) (10,)`. The fix would be `shade_spectrum.reshape(-1, 1)` but we cannot patch the installed package.
+
+**Workaround:** Omit `shade_spectrum` parameter (pass `None`). Pre-subtract shade endmember from library columns before calling `execute()`. This is equivalent — mesma's shade correction is a linear operation. The shade fraction output (last channel of fractions array) will be `1 - sum(other_fractions)` per pixel, which is the standard photometric shade derivation.
+
+**API discovery findings (relevant for unmixing.py implementation):**
+
+- `MesmaCore.execute()` expects `image` as `(n_bands, rows, cols)` or `(n_bands, n_pixels)` — bands-first, NOT `(rows, cols, bands)`.
+- `library` expects `(n_bands, n_endmembers)` — bands-first, columns are spectra.
+- `look_up_table` must be `dict[int, dict[tuple[int,...], np.ndarray]]` — outer key is level (2=2-EM, 3=3-EM), inner key is a **tuple of class indices** (not a string), value is array of endmember index combinations.
+- `em_per_class` is `dict[str, list[int]]` mapping class name to library column indices.
+- Output `fractions` shape: `(n_classes+1, rows, cols)` — last channel is shade.
+- Unmodeled pixels: fractions=0, rmse=9999 (not NaN — requires post-processing to convert to NaN).
+
+**Verdict:** USE MESMA (with shade workaround)
+
+**Implications for Wave 2 unmixing.py:**
+
+The core MESMA engine is usable. `unmixing.py` must use the bands-first array convention for both image and library, build the LUT using tuple-of-integer keys (not string keys), and pass `shade_spectrum=None` while pre-subtracting shade from the library if shade correction is needed. Unmodeled pixels come back with rmse=9999 (not NaN) — `run_mesma()` must convert `rmse >= 9999` to NaN fractions. The HySUPP fallback should still be implemented for robustness, but MESMA is the primary engine. `mesma` stays as an optional dependency in pyproject.toml (the engine detection pattern in `unmixing.py` handles the import gracefully), with the recommendation to promote it to hard deps only after confirming 426-band performance.
