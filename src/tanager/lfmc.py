@@ -107,3 +107,103 @@ _NDWI_PAIRS: Tuple[Tuple[str, float, float], ...] = (
 # WI = R900 / R970. Values < 1 indicate water absorption.
 _WI_NUMERATOR_NM: float = 900.0
 _WI_DENOMINATOR_NM: float = 970.0
+
+
+# ---------------------------------------------------------------------------
+# Spectral Absorption Index (SAI) — core single-feature computation
+# ---------------------------------------------------------------------------
+
+
+def _compute_sai(
+    reflectance: np.ndarray,
+    wavelengths: np.ndarray,
+    target_wl: float,
+    left_shoulder: float,
+    right_shoulder: float,
+) -> float:
+    """Compute the Spectral Absorption Index for a single feature.
+
+    The SAI is the relative depth of a continuum-removed absorption feature:
+
+    .. math::
+
+        \\mathrm{SAI} = \\frac{R_c(\\lambda_t) - R(\\lambda_t)}{R_c(\\lambda_t)}
+
+    where ``R_c`` is the straight-line continuum fit between the left and
+    right shoulder reflectances and ``R(λ_t)`` is the measured reflectance
+    at the absorption feature minimum.
+
+    The output is clipped to ``[0, 1]``: 0 indicates no absorption (flat
+    spectrum, or measured reflectance at or above the continuum), 1 indicates
+    total absorption (zero reflectance at the feature minimum).
+
+    Args:
+        reflectance: 1-D array of reflectance values for a single pixel.
+        wavelengths: 1-D wavelength array (nm), same length as ``reflectance``.
+        target_wl: Wavelength of the absorption feature minimum (nm).
+        left_shoulder: Approximate wavelength of the left continuum anchor (nm).
+            Nearest-neighbour band matching (Tanager 5 nm grid) is applied so
+            the value need only be approximate.
+        right_shoulder: Approximate wavelength of the right continuum anchor (nm).
+
+    Returns:
+        SAI value in ``[0, 1]``. Returns ``0.0`` when the feature cannot be
+        evaluated:
+
+        * shoulders do not bracket the target (``left < target < right`` violated),
+        * any of the target / shoulder wavelengths fall outside the supplied
+          spectrum's range,
+        * any of the three reflectance values is NaN,
+        * the linearly-interpolated continuum is non-positive,
+        * the measured reflectance at the target equals or exceeds the
+          continuum (no absorption detected).
+
+    Raises:
+        ValueError: If ``reflectance`` and ``wavelengths`` have different shapes.
+    """
+    refl = np.asarray(reflectance, dtype=np.float64)
+    wl = np.asarray(wavelengths, dtype=np.float64)
+
+    if refl.shape != wl.shape:
+        raise ValueError(
+            f"reflectance shape {refl.shape} does not match wavelengths shape {wl.shape}"
+        )
+    if refl.ndim != 1:
+        raise ValueError(
+            f"_compute_sai expects 1-D arrays; got {refl.ndim}-D reflectance"
+        )
+    if refl.size == 0:
+        return 0.0
+
+    if not (left_shoulder < target_wl < right_shoulder):
+        return 0.0
+
+    wl_min = float(wl.min())
+    wl_max = float(wl.max())
+    if left_shoulder < wl_min or right_shoulder > wl_max:
+        return 0.0
+
+    idx_target = int(np.argmin(np.abs(wl - target_wl)))
+    idx_left = int(np.argmin(np.abs(wl - left_shoulder)))
+    idx_right = int(np.argmin(np.abs(wl - right_shoulder)))
+
+    r_target = float(refl[idx_target])
+    r_left = float(refl[idx_left])
+    r_right = float(refl[idx_right])
+    if not (np.isfinite(r_target) and np.isfinite(r_left) and np.isfinite(r_right)):
+        return 0.0
+
+    wl_left = float(wl[idx_left])
+    wl_right = float(wl[idx_right])
+    wl_target = float(wl[idx_target])
+    if wl_right == wl_left:
+        return 0.0
+
+    continuum = r_left + (r_right - r_left) * (wl_target - wl_left) / (wl_right - wl_left)
+    if continuum <= 0.0:
+        return 0.0
+
+    sai = (continuum - r_target) / continuum
+    if not np.isfinite(sai):
+        return 0.0
+    return float(np.clip(sai, 0.0, 1.0))
