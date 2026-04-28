@@ -17,8 +17,8 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 
 ## Current State
 
-**Last Updated:** 2026-04-27
-**Current Phase:** Phase 3 — Core Analysis (MESMA + LFMC) — spec proposed, awaiting EM review
+**Last Updated:** 2026-04-28
+**Current Phase:** Phase 3 — Core Analysis (MESMA + LFMC) — approved, EM-enriched, ready for /run-phase
 
 ### What Exists
 | Capability | Status | Key Details |
@@ -28,7 +28,7 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 | Data Access Research | Complete | STAC catalog, HyperCoast I/O, scene inventory confirmed |
 | Project Setup | Complete | OpenSpec, memory system, pyproject.toml, editable install |
 | Data Pipeline (code) | **Complete** | 41/41 tasks, 159 tests passing. Modules: config, catalog, io, spectral, masks |
-| Core Analysis | **Specced** | OpenSpec 003-core-analysis proposed. 4 new modules planned. |
+| Core Analysis | **Ready for build** | OpenSpec 003-core-analysis approved + EM-enriched. 55 tasks, 4 waves, 5 new modules. Phase 2 remediation findings incorporated. |
 | Packaging & Submission | Not Started | Phase 4 — depends on analysis pipeline |
 
 ### Remaining Gaps
@@ -101,6 +101,7 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 
 | Date | Event | Details |
 |------|-------|---------|
+| 2026-04-28 | Phase 3 spec finalized | Incorporated Phase 2 remediation findings: per-band FWHM, reproject_to_common_grid, reflectance clamping, scene overlap warnings. Ready for /run-phase. |
 | 2026-04-27 | Phase 3 spec proposed | OpenSpec 003-core-analysis: MESMA + LFMC + severity + validation |
 | 2026-04-27 | Phase 2 complete | 41/41 tasks done, 159 tests passing, all modules shipped |
 | 2026-04-27 | Phase 1 research complete | Literature review + data access evaluation finished |

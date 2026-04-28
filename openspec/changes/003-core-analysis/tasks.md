@@ -156,8 +156,13 @@
   <!-- gotcha: target_wavelengths should default to np.linspace(380, 2500, 426) if not extracted
        from a specific scene. In practice, use actual band centers from scene metadata via
        dataset.coords["wavelength"].values. -->
+  <!-- gotcha: PHASE 2 FINDING — actual per-band FWHM varies 5.20-6.81nm (not constant 5.5nm).
+       load_ortho_scene() now stores per-band FWHM as dataset.coords["fwhm"]. The fwhm parameter
+       should accept EITHER a scalar (backward compat) OR a numpy array of per-band values.
+       When a scene Dataset is available, prefer: dataset.coords["fwhm"].values for accuracy.
+       This matters for sharp absorption features where FWHM variation is significant. -->
   <!-- test: tests/test_endmembers.py — verify output has target_wavelengths length, values in [0, 1] -->
-  <!-- acceptance: output DataArray has 426 wavelengths; reflectance clipped to [0, 1]; dims preserved -->
+  <!-- acceptance: output DataArray has 426 wavelengths; reflectance clipped to [0, 1]; dims preserved; accepts per-band FWHM array -->
 
 - [ ] Implement `build_hybrid_library(usgs, ecostress, frames, image_derived)` to merge multiple sources into a single library DataArray with source tracking
   <!-- files: src/tanager/endmembers.py (modify) -->
@@ -451,8 +456,11 @@ Verify: unmixing module works end-to-end on synthetic data, fraction maps are ph
        Stack along new "time" dimension. Output: xr.Dataset with dims (time, y, x) and
        variables for each fraction class. Time coordinate from scene datetime metadata. -->
   <!-- gotcha: all scenes must be unmixed with the SAME endmember library for comparability.
-       The library parameter ensures this. Scenes may have different spatial extents — the coder
-       should handle spatial alignment (crop to common extent) or raise ValueError. -->
+       The library parameter ensures this. Scenes may have different spatial extents — use
+       tanager.io.reproject_to_common_grid(scenes) to align all scenes to a shared UTM grid
+       before unmixing. This function was added during Phase 2 remediation and handles overlap
+       detection, reprojection, and coordinate alignment. It raises ValueError if scenes have
+       < 10% overlap (too little common area). -->
   <!-- gotcha: this function can be VERY slow (MESMA on N scenes). Log progress per scene.
        For the Dec 2024 → Jul 2025 timeline, expect 5-7 scenes. -->
   <!-- dep: requires unmixing.py run_mesma to exist (Wave 2) -->
@@ -464,9 +472,14 @@ Verify: unmixing module works end-to-end on synthetic data, fraction maps are ph
   <!-- pattern: mesma_severity and dnbr_map are both DataArrays with (y, x) dims.
        Compute: Pearson correlation (np.corrcoef), RMSE, bias (mean difference), difference map.
        Return dict with keys: correlation, rmse, bias, difference_map (DataArray). -->
-  <!-- gotcha: use spectral.dnbr() to get the dNBR baseline. The comparison should demonstrate
-       MESMA's improvement. If MESMA R² > dNBR R², that's a strong competition result. -->
-  <!-- gotcha: spatial extents must match. Use xarray alignment or raise ValueError. -->
+  <!-- gotcha: use spectral.dnbr() to get the dNBR baseline. dnbr() now has auto_align=True
+       (Phase 2 fix) which calls reproject_to_common_grid automatically when scenes differ.
+       The comparison should demonstrate MESMA's improvement. If MESMA R² > dNBR R², that's
+       a strong competition result. -->
+  <!-- gotcha: PHASE 2 FINDING — pre-fire (Dec 15) and primary post-fire (Jan 23) scenes have
+       minimal spatial overlap (different swath areas). The Jan 23 second swath
+       (20250123_185518_92_4001) may overlap better. Verify overlap with
+       reproject_to_common_grid before computing dNBR or severity comparison. -->
   <!-- test: tests/test_severity.py — test with synthetic data, verify metric ranges -->
   <!-- acceptance: returns correlation, RMSE, bias, difference map; metrics are physically reasonable -->
 
@@ -519,6 +532,11 @@ Verify: unmixing module works end-to-end on synthetic data, fraction maps are ph
        Depth = 1 - CR_value (continuum removal gives ratio, depth is the complement). -->
   <!-- gotcha: per spec, all wavelength lookups use nearest-neighbor matching (Tanager 5nm grid).
        Import from tanager.spectral where possible to reuse existing band math. -->
+  <!-- gotcha: PHASE 2 FINDING — real Tanager reflectance has 13% negative values (ISOFIT shadow
+       artifacts) and 0.09% values > 1.0 (calibration artifacts). Before computing indices,
+       clamp reflectance to [0, 1] or use the epsilon-guarded _normalized_difference from
+       spectral.py (LGT-311 added epsilon guard for near-zero denominators). SAI computation
+       on unclamped reflectance will produce nonsense absorption depths. -->
   <!-- gotcha: this function should be fast (< 60 seconds per scene per spec NFR).
        The SAI computation is the bottleneck — vectorize aggressively. -->
   <!-- test: tests/test_lfmc.py — compute indices on synthetic dataset, verify shapes and ranges -->

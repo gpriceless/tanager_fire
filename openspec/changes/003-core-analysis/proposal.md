@@ -2,7 +2,7 @@
 
 **Change ID:** 003-core-analysis
 **Plane Issue:** TANAGER-10
-**Status:** Proposed
+**Status:** Approved (EM-enriched, ready for /run-phase)
 **Author:** Product Queen
 **Date:** 2026-04-27
 
