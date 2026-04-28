@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 _EXPECTED_GOOD_BAND_MIN = 320
 _EXPECTED_GOOD_BAND_MAX = 360
 
+# Threshold below which |NIR + SWIR| is treated as zero in normalized-difference
+# indices. Real Tanager surface reflectance contains negative ISOFIT retrievals
+# and near-zero values that produce extreme ratios (NBR=-99) without a guard.
+_DENOMINATOR_EPSILON = 1e-3
+
 # HDF5 path used by Tanager ortho_sr products; mirrors tanager.io._ORTHO_SR_DATASET.
 _ORTHO_SR_DATASET_PATH = "HDFEOS/GRIDS/HYP/Data Fields/surface_reflectance"
 
@@ -295,8 +300,36 @@ def mask_bad_bands(
 # ---------------------------------------------------------------------------
 
 
+_REFLECTANCE_VARIABLE_PRIORITY: tuple[str, ...] = (
+    "reflectance",
+    "surface_reflectance",
+    "toa_radiance",
+)
+
+
+def _reflectance_var(dataset: xr.Dataset) -> xr.DataArray:
+    """Locate the reflectance/radiance cube on a Tanager Dataset.
+
+    Tanager ortho_sr products expose ``surface_reflectance`` (with a
+    ``toa_radiance`` alias for swath-path compatibility); synthetic test
+    fixtures use ``reflectance``.  Pick the first variable that exists in
+    a fixed priority order so spectral indices work transparently across
+    both layouts.
+    """
+    explicit = dataset.attrs.get("data_var")
+    if isinstance(explicit, str) and explicit in dataset.data_vars:
+        return dataset[explicit]
+    for name in _REFLECTANCE_VARIABLE_PRIORITY:
+        if name in dataset.data_vars:
+            return dataset[name]
+    raise ValueError(
+        "Dataset has no reflectance variable; expected one of "
+        f"{_REFLECTANCE_VARIABLE_PRIORITY}, got {list(dataset.data_vars)}"
+    )
+
+
 def _normalized_difference(band1: xr.DataArray, band2: xr.DataArray) -> xr.DataArray:
-    """Compute (band1 - band2) / (band1 + band2) with NaN where denominator is zero.
+    """Compute (band1 - band2) / (band1 + band2) with NaN where the denominator is near zero.
 
     Args:
         band1: First spectral band DataArray.
@@ -304,11 +337,72 @@ def _normalized_difference(band1: xr.DataArray, band2: xr.DataArray) -> xr.DataA
 
     Returns:
         DataArray with normalized difference values in [-1, 1], NaN where
-        band1 + band2 == 0.
+        ``|band1 + band2| < _DENOMINATOR_EPSILON``.  The epsilon guard is
+        critical for real ISOFIT surface reflectance: small/negative values
+        sum to a near-zero denominator and would otherwise blow up the ratio.
     """
     numerator = band1 - band2
     denominator = band1 + band2
-    return xr.where(denominator == 0, np.nan, numerator / denominator)
+    return xr.where(
+        np.abs(denominator) < _DENOMINATOR_EPSILON,
+        np.nan,
+        numerator / denominator,
+    )
+
+
+def clamp_reflectance(
+    data: Union[xr.Dataset, xr.DataArray],
+    vmin: float = 0.0,
+    vmax: float = 1.0,
+) -> Union[xr.Dataset, xr.DataArray]:
+    """Clamp reflectance values to ``[vmin, vmax]``.
+
+    Tanager-1 surface-reflectance products from ISOFIT atmospheric correction
+    contain a substantial fraction of negative values (~13% on the LA-area
+    scenes used for this competition) and occasional extreme positive
+    outliers.  Both violate the physical [0, 1] range of reflectance and
+    produce nonsense in spectral indices such as NBR.  Clamping each input
+    band to a physical range before the index ratio is the standard
+    mitigation.
+
+    Args:
+        data: Either an ``xr.Dataset`` containing a ``reflectance`` variable
+            or a single ``xr.DataArray`` of reflectance values.  When a
+            Dataset is passed, only the ``reflectance`` variable is clamped;
+            other variables and coordinates are preserved unchanged.
+        vmin: Lower clamp bound (inclusive).  Default ``0.0``.
+        vmax: Upper clamp bound (inclusive).  Default ``1.0``.
+
+    Returns:
+        A new object of the same type as ``data`` with values outside
+        ``[vmin, vmax]`` clipped to the bound.  The input is not modified.
+
+    Raises:
+        ValueError: If ``vmin > vmax`` or if a Dataset without a
+            ``reflectance`` variable is passed.
+    """
+    if vmin > vmax:
+        raise ValueError(f"vmin ({vmin}) must be <= vmax ({vmax})")
+
+    if isinstance(data, xr.Dataset):
+        if "reflectance" not in data:
+            raise ValueError("Dataset must contain a 'reflectance' variable")
+        refl = data["reflectance"]
+        n_clamped = int(((refl < vmin) | (refl > vmax)).sum())
+        clamped = data.copy()
+        clamped["reflectance"] = refl.clip(min=vmin, max=vmax)
+    else:
+        n_clamped = int(((data < vmin) | (data > vmax)).sum())
+        clamped = data.clip(min=vmin, max=vmax)
+
+    if n_clamped > 0:
+        logger.debug(
+            "clamp_reflectance: clamped %d values to [%g, %g]",
+            n_clamped,
+            vmin,
+            vmax,
+        )
+    return clamped
 
 
 def nbr(dataset: xr.Dataset) -> xr.DataArray:
@@ -325,10 +419,15 @@ def nbr(dataset: xr.Dataset) -> xr.DataArray:
 
     Returns:
         DataArray of NBR values with spatial dimensions (y, x).  Values are in
-        [-1, 1]; pixels where NIR + SWIR2 == 0 are set to NaN.
+        [-1, 1]; pixels where ``|NIR + SWIR2| < _DENOMINATOR_EPSILON`` are set
+        to NaN.  Both bands are clamped to ``[0, 1]`` before the ratio is
+        computed so ISOFIT negative-reflectance retrievals do not propagate.
     """
-    nir = dataset["reflectance"].sel(wavelength=BAND_ALIASES["NIR"], method="nearest")
-    swir2 = dataset["reflectance"].sel(wavelength=BAND_ALIASES["SWIR2"], method="nearest")
+    refl = _reflectance_var(dataset)
+    nir = refl.sel(wavelength=BAND_ALIASES["NIR"], method="nearest")
+    swir2 = refl.sel(wavelength=BAND_ALIASES["SWIR2"], method="nearest")
+    nir = clamp_reflectance(nir)
+    swir2 = clamp_reflectance(swir2)
     return _normalized_difference(nir, swir2)
 
 
@@ -345,10 +444,15 @@ def ndvi(dataset: xr.Dataset) -> xr.DataArray:
 
     Returns:
         DataArray of NDVI values with spatial dimensions (y, x).  Values are in
-        [-1, 1]; pixels where NIR + Red == 0 are set to NaN.
+        [-1, 1]; pixels where ``|NIR + Red| < _DENOMINATOR_EPSILON`` are set
+        to NaN.  Both bands are clamped to ``[0, 1]`` before the ratio is
+        computed.
     """
-    nir = dataset["reflectance"].sel(wavelength=BAND_ALIASES["NIR"], method="nearest")
-    red = dataset["reflectance"].sel(wavelength=BAND_ALIASES["RED"], method="nearest")
+    refl = _reflectance_var(dataset)
+    nir = refl.sel(wavelength=BAND_ALIASES["NIR"], method="nearest")
+    red = refl.sel(wavelength=BAND_ALIASES["RED"], method="nearest")
+    nir = clamp_reflectance(nir)
+    red = clamp_reflectance(red)
     return _normalized_difference(nir, red)
 
 
@@ -365,10 +469,15 @@ def ndwi(dataset: xr.Dataset) -> xr.DataArray:
 
     Returns:
         DataArray of NDWI values with spatial dimensions (y, x).  Values are in
-        [-1, 1]; pixels where Green + NIR == 0 are set to NaN.
+        [-1, 1]; pixels where ``|Green + NIR| < _DENOMINATOR_EPSILON`` are set
+        to NaN.  Both bands are clamped to ``[0, 1]`` before the ratio is
+        computed.
     """
-    green = dataset["reflectance"].sel(wavelength=BAND_ALIASES["GREEN"], method="nearest")
-    nir = dataset["reflectance"].sel(wavelength=BAND_ALIASES["NIR"], method="nearest")
+    refl = _reflectance_var(dataset)
+    green = refl.sel(wavelength=BAND_ALIASES["GREEN"], method="nearest")
+    nir = refl.sel(wavelength=BAND_ALIASES["NIR"], method="nearest")
+    green = clamp_reflectance(green)
+    nir = clamp_reflectance(nir)
     return _normalized_difference(green, nir)
 
 

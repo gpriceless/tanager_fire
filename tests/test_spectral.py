@@ -10,6 +10,7 @@ import xarray as xr
 
 from tanager.config import BAD_BAND_RANGES
 from tanager.spectral import (
+    clamp_reflectance,
     continuum_removal,
     dnbr,
     mask_bad_bands,
@@ -859,3 +860,266 @@ def test_task29_nbr_verification() -> None:
     result_zero = nbr(ds_zero)
     assert np.all(np.isnan(result_zero.values)), "Expected all NaN when denominator=0"
     assert not np.any(np.isinf(result_zero.values)), "Unexpected Inf in NBR result"
+
+
+# ---------------------------------------------------------------------------
+# clamp_reflectance + adversarial-input regression tests (LGT-311)
+# ---------------------------------------------------------------------------
+
+
+def _make_ds_with_band_array(
+    wl_target: float,
+    band_values: np.ndarray,
+    *,
+    other_target: float,
+    other_values: np.ndarray,
+) -> xr.Dataset:
+    """Build a 426-band dataset where two specific bands carry adversarial values."""
+    wavelengths = np.linspace(380, 2500, 426)
+    ny, nx = band_values.shape
+    data = np.zeros((426, ny, nx), dtype=np.float32)
+    target_idx = int(np.argmin(np.abs(wavelengths - wl_target)))
+    other_idx = int(np.argmin(np.abs(wavelengths - other_target)))
+    data[target_idx] = band_values
+    data[other_idx] = other_values
+    return xr.Dataset(
+        {"reflectance": (["wavelength", "y", "x"], data)},
+        coords={"wavelength": wavelengths},
+    )
+
+
+class TestClampReflectance:
+    def test_dataset_clamps_to_range(self) -> None:
+        wavelengths = np.linspace(380, 2500, 5)
+        data = np.array([[-0.5], [0.2], [0.7], [1.5], [2.0]], dtype=np.float32)[
+            :, :, None
+        ]
+        ds = xr.Dataset(
+            {"reflectance": (["wavelength", "y", "x"], data)},
+            coords={"wavelength": wavelengths},
+        )
+        out = clamp_reflectance(ds)
+        out_vals = out["reflectance"].values
+        assert float(out_vals.min()) >= 0.0
+        assert float(out_vals.max()) <= 1.0
+
+    def test_dataarray_clamps_to_range(self) -> None:
+        arr = xr.DataArray(np.array([-1.0, 0.0, 0.5, 1.0, 2.0], dtype=np.float32))
+        out = clamp_reflectance(arr)
+        np.testing.assert_array_equal(out.values, [0.0, 0.0, 0.5, 1.0, 1.0])
+
+    def test_does_not_modify_input(self) -> None:
+        arr = xr.DataArray(np.array([-1.0, 2.0], dtype=np.float32))
+        before = arr.values.copy()
+        clamp_reflectance(arr)
+        np.testing.assert_array_equal(arr.values, before)
+
+    def test_dataset_preserves_other_variables(self) -> None:
+        wavelengths = np.linspace(380, 2500, 3)
+        data = np.array([[-0.2], [0.5], [1.4]], dtype=np.float32)[:, :, None]
+        flag = np.array([1, 0, 1], dtype=np.uint8)
+        ds = xr.Dataset(
+            {
+                "reflectance": (["wavelength", "y", "x"], data),
+                "qa_flag": (["wavelength"], flag),
+            },
+            coords={"wavelength": wavelengths},
+        )
+        out = clamp_reflectance(ds)
+        assert "qa_flag" in out
+        np.testing.assert_array_equal(out["qa_flag"].values, flag)
+
+    def test_custom_bounds(self) -> None:
+        arr = xr.DataArray(np.array([-2.0, -0.5, 0.0, 0.5, 1.0], dtype=np.float32))
+        out = clamp_reflectance(arr, vmin=-1.0, vmax=0.5)
+        np.testing.assert_array_equal(out.values, [-1.0, -0.5, 0.0, 0.5, 0.5])
+
+    def test_invalid_bounds(self) -> None:
+        arr = xr.DataArray(np.array([0.5], dtype=np.float32))
+        with pytest.raises(ValueError, match="must be <="):
+            clamp_reflectance(arr, vmin=1.0, vmax=0.0)
+
+    def test_dataset_without_reflectance_raises(self) -> None:
+        ds = xr.Dataset({"foo": (["x"], np.array([1.0]))})
+        with pytest.raises(ValueError, match="reflectance"):
+            clamp_reflectance(ds)
+
+    def test_no_clamp_when_in_range(self) -> None:
+        arr = xr.DataArray(np.array([0.0, 0.25, 0.75, 1.0], dtype=np.float32))
+        out = clamp_reflectance(arr)
+        np.testing.assert_array_equal(out.values, arr.values)
+
+
+class TestAdversarialReflectance:
+    """Regression tests for ISOFIT real-data reflectance pathologies (LGT-311).
+
+    Real Tanager surface reflectance contains a substantial fraction of
+    negative values and the occasional extreme outlier. Without the epsilon
+    guard and clamp, these produce NBR=-99, NDVI=5, etc. — physically
+    impossible.
+    """
+
+    def test_nbr_negative_reflectance_clamped_then_in_range(self) -> None:
+        # NIR strongly negative, SWIR2 slightly positive — without clamp this
+        # would yield (-37.6 - 0.05) / (-37.6 + 0.05) ≈ +1.003 (out of range
+        # plus blown up by near-zero denom) or, post-clamp, (0 - 0.05) /
+        # (0 + 0.05) = -1.0 (in-range).
+        nir = np.full((4, 4), -37.6, dtype=np.float32)
+        swir2 = np.full((4, 4), 0.05, dtype=np.float32)
+        ds = _make_ds_with_band_array(
+            860.0, nir, other_target=2200.0, other_values=swir2
+        )
+        result = nbr(ds)
+        valid = result.values[~np.isnan(result.values)]
+        assert np.all(valid >= -1.0)
+        assert np.all(valid <= 1.0)
+        assert not np.any(np.isinf(result.values))
+
+    def test_ndvi_extreme_positive_outlier_clamped(self) -> None:
+        # NIR=39.2 (extreme), Red=0.05 -> raw ratio diverges from [-1, 1].
+        # Clamped: (1.0 - 0.05) / (1.0 + 0.05) ≈ 0.905, in range.
+        nir = np.full((3, 3), 39.2, dtype=np.float32)
+        red = np.full((3, 3), 0.05, dtype=np.float32)
+        ds = _make_ds_with_band_array(
+            860.0, nir, other_target=660.0, other_values=red
+        )
+        result = ndvi(ds)
+        vals = result.values[~np.isnan(result.values)]
+        assert np.all(vals >= -1.0)
+        assert np.all(vals <= 1.0)
+        assert not np.any(np.isinf(result.values))
+
+    def test_near_zero_denominator_produces_nan_not_inf(self) -> None:
+        # Both bands at +1e-4 — sum is 2e-4, which is below the 1e-3 epsilon
+        # guard.  Without the guard this would divide a tiny number by a tiny
+        # number and amplify floating-point noise.
+        nir = np.full((4, 4), 1e-4, dtype=np.float32)
+        swir2 = np.full((4, 4), 1e-4, dtype=np.float32)
+        ds = _make_ds_with_band_array(
+            860.0, nir, other_target=2200.0, other_values=swir2
+        )
+        result = nbr(ds)
+        assert np.all(np.isnan(result.values))
+        assert not np.any(np.isinf(result.values))
+
+    def test_negative_denominator_below_epsilon_produces_nan(self) -> None:
+        # Both bands negative -> denominator negative; |denominator| < epsilon
+        # should still trigger the guard regardless of sign.
+        nir = np.full((4, 4), -1e-4, dtype=np.float32)
+        swir2 = np.full((4, 4), -1e-4, dtype=np.float32)
+        ds = _make_ds_with_band_array(
+            860.0, nir, other_target=2200.0, other_values=swir2
+        )
+        result = nbr(ds)
+        assert np.all(np.isnan(result.values))
+        assert not np.any(np.isinf(result.values))
+
+    def test_mixed_adversarial_pixel_grid_all_in_range(self) -> None:
+        # Build a 4x4 grid with a mix of pathological values: negatives,
+        # near-zero, normal, and extreme positives.  After processing every
+        # finite pixel must be in [-1, 1].
+        nir = np.array(
+            [
+                [-37.6, -0.5, 0.0, 0.001],
+                [0.05, 0.4, 0.6, 0.95],
+                [1.0, 1.5, 5.0, 39.2],
+                [-1e-4, 1e-4, 0.5, 0.5],
+            ],
+            dtype=np.float32,
+        )
+        swir2 = np.array(
+            [
+                [0.05, 0.05, 0.05, 0.001],
+                [0.05, 0.2, 0.3, 0.4],
+                [0.5, 0.5, 0.5, 0.5],
+                [-1e-4, 1e-4, 0.5, 0.5001],
+            ],
+            dtype=np.float32,
+        )
+        ds = _make_ds_with_band_array(
+            860.0, nir, other_target=2200.0, other_values=swir2
+        )
+        result = nbr(ds)
+        finite = result.values[np.isfinite(result.values)]
+        assert np.all(finite >= -1.0)
+        assert np.all(finite <= 1.0)
+        assert not np.any(np.isinf(result.values))
+
+    def test_alternate_reflectance_variable_name(self) -> None:
+        """Real ortho_sr scenes use ``surface_reflectance`` instead of ``reflectance``."""
+        wavelengths = np.linspace(380, 2500, 426)
+        data = np.zeros((426, 4, 4), dtype=np.float32)
+        nir_idx = int(np.argmin(np.abs(wavelengths - 860)))
+        swir2_idx = int(np.argmin(np.abs(wavelengths - 2200)))
+        data[nir_idx, :, :] = 0.6
+        data[swir2_idx, :, :] = 0.2
+        sr_da = xr.DataArray(
+            data, dims=("wavelength", "y", "x"), coords={"wavelength": wavelengths}
+        )
+        ds = xr.Dataset(
+            {"surface_reflectance": sr_da, "toa_radiance": sr_da},
+            attrs={"data_var": "surface_reflectance"},
+        )
+        result = nbr(ds)
+        np.testing.assert_allclose(result.values, 0.5, atol=1e-5)
+
+    def test_dnbr_propagates_clamp_via_nbr(self) -> None:
+        # Pre-fire pathological, post-fire normal.  Without the clamp this
+        # would produce wild dNBR values; with the clamp every output pixel
+        # must remain finite and bounded.
+        pre = _make_ds_with_band_array(
+            860.0,
+            np.full((3, 3), -37.6, dtype=np.float32),
+            other_target=2200.0,
+            other_values=np.full((3, 3), 0.05, dtype=np.float32),
+        )
+        post = _make_ds_with_band_array(
+            860.0,
+            np.full((3, 3), 0.6, dtype=np.float32),
+            other_target=2200.0,
+            other_values=np.full((3, 3), 0.2, dtype=np.float32),
+        )
+        result = dnbr(pre, post)
+        # NBR is in [-1, 1], so dNBR ∈ [-2, 2].
+        finite = result.values[np.isfinite(result.values)]
+        assert np.all(finite >= -2.0)
+        assert np.all(finite <= 2.0)
+        assert not np.any(np.isinf(result.values))
+
+
+# ---------------------------------------------------------------------------
+# Real-data integration test (LGT-311 board directive)
+#
+# Skipped automatically when the post-fire ortho_sr HDF5 is not on disk so
+# CI without bulk-data access still passes.
+# ---------------------------------------------------------------------------
+
+_REAL_POST_FIRE_PATH = os.path.join(
+    "data", "raw", "fire", "20250123_185507_64_4001_ortho_sr_hdf5.h5"
+)
+
+
+@pytest.mark.skipif(
+    not os.path.exists(_REAL_POST_FIRE_PATH),
+    reason="real ortho_sr scene not available locally",
+)
+def test_real_scene_indices_are_in_physical_range() -> None:
+    """Load a real Tanager ortho_sr scene and assert NBR/NDVI/NDWI ∈ [-1, 1].
+
+    This is the integration test the LGT-311 board directive requested.
+    Real ISOFIT surface reflectance contains ~7% negative values and rare
+    extreme outliers; the epsilon guard plus clamp ensures every finite
+    output pixel is in the physical [-1, 1] range and no infinities are
+    produced.
+    """
+    from tanager.io import load_ortho_scene
+
+    ds = load_ortho_scene(_REAL_POST_FIRE_PATH)
+    for fn in (nbr, ndvi, ndwi):
+        out = fn(ds)
+        vals = out.values
+        finite = vals[np.isfinite(vals)]
+        assert not np.any(np.isinf(vals)), f"{fn.__name__}: produced infinity"
+        assert finite.size > 0, f"{fn.__name__}: produced no finite pixels"
+        assert finite.min() >= -1.0 - 1e-6
+        assert finite.max() <= 1.0 + 1e-6

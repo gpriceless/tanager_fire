@@ -30,6 +30,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     # spectral -------------------------------------------------------------
     "select_bands": "spectral",
     "mask_bad_bands": "spectral",
+    "clamp_reflectance": "spectral",
     "nbr": "spectral",
     "ndvi": "spectral",
     "ndwi": "spectral",
