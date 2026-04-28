@@ -752,3 +752,166 @@ def train_lfmc_plsr(
         "n_components_optimal": best_n,
         "vip_scores": vip,
     }
+
+
+# ---------------------------------------------------------------------------
+# Per-pixel LFMC prediction
+# ---------------------------------------------------------------------------
+
+
+def predict_lfmc(
+    scene: Any,
+    model: Any,
+    method: str = "plsr",
+) -> dict[str, xr.DataArray]:
+    """Apply a trained LFMC model to a scene, with uncertainty + low-LFMC flag.
+
+    Flattens the scene reflectance into ``(n_pixels, n_bands)``, runs the
+    model's ``predict``, clips the result to the physical ``[0, 300]`` %
+    range, and reshapes back to ``(y, x)``. Two companion DataArrays are
+    returned alongside the LFMC map:
+
+    * **uncertainty_map** — per-pixel uncertainty estimate. When ``model``
+      is the dict returned by :func:`train_lfmc_plsr`, the cross-validated
+      RMSE (in % LFMC) is used as a uniform global uncertainty floor; this
+      is a coarse approximation, intended as a Tier-1 placeholder until the
+      Phase 4 bootstrap-based prediction interval becomes available. Pixels
+      with NaN input propagate to NaN.
+    * **low_lfmc_flag** — boolean DataArray, ``True`` where predicted LFMC
+      is below 60 % (the nonlinear / fire-prone regime per Roberts et al.
+      2006). NaN-input pixels are ``False`` (unknown rather than low).
+
+    Args:
+        scene: ``xr.Dataset`` with a ``reflectance`` variable shaped
+            ``(wavelength, y, x)``, or a DataArray of the same shape. The
+            band layout MUST match the layout used to train ``model``
+            (caller is responsible for selecting bands consistently —
+            typically by passing the same `bands` array through
+            :func:`tanager.spectral.select_bands` before training and
+            prediction).
+        model: Either the dict returned by :func:`train_lfmc_plsr`
+            (preferred — the ``rmse`` key drives the uncertainty floor) or
+            a bare fitted PLSRegression. With a bare estimator the
+            uncertainty is reported as 0 (caller should construct the
+            full dict to get a meaningful uncertainty).
+        method: Currently ``"plsr"`` only. Reserved for future
+            ``"indices"`` mode driven by :func:`compute_lfmc_indices`.
+
+    Returns:
+        Dict with keys:
+            ``lfmc_map``: ``(y, x)`` DataArray of predicted LFMC %, NaN on
+                input-NaN pixels, clipped to ``[0, 300]``.
+            ``uncertainty_map``: ``(y, x)`` DataArray of LFMC uncertainty %,
+                NaN on input-NaN pixels.
+            ``low_lfmc_flag``: ``(y, x)`` boolean DataArray, True where
+                LFMC < 60 % and the input was finite.
+
+    Raises:
+        ValueError: If ``method`` is unsupported, the model dict is missing
+            the ``"model"`` key, or the scene's band count does not match
+            the model's expected feature count.
+    """
+    if method != "plsr":
+        raise ValueError(
+            f"unsupported method {method!r}; only 'plsr' is implemented"
+        )
+
+    if isinstance(model, Mapping):
+        estimator = model.get("model")
+        if estimator is None:
+            raise ValueError(
+                "model dict must contain a 'model' key with a fitted estimator"
+            )
+        cv_rmse = float(model.get("rmse", 0.0))
+    else:
+        estimator = model
+        cv_rmse = 0.0
+
+    refl = _scene_reflectance(scene)
+    if "wavelength" not in refl.dims:
+        raise ValueError(
+            "scene reflectance must have a 'wavelength' dim leading the array"
+        )
+    refl = refl.transpose("wavelength", ...)
+    nb = refl.sizes["wavelength"]
+
+    # Spatial dims after wavelength.
+    spatial_dims = tuple(d for d in refl.dims if d != "wavelength")
+    if not spatial_dims:
+        raise ValueError("scene reflectance must have at least one spatial dim")
+    spatial_shape = tuple(refl.sizes[d] for d in spatial_dims)
+    n_pixels = int(np.prod(spatial_shape))
+
+    expected_features = getattr(estimator, "n_features_in_", None)
+    if expected_features is not None and nb != int(expected_features):
+        raise ValueError(
+            f"scene has {nb} bands but model expects {int(expected_features)} features; "
+            "select bands consistently between training and prediction"
+        )
+
+    # (n_bands, n_pixels) → (n_pixels, n_bands) for sklearn.
+    X = np.asarray(refl.values, dtype=np.float64).reshape(nb, n_pixels).T
+
+    nan_mask = ~np.all(np.isfinite(X), axis=1)
+    X_safe = np.where(np.isnan(X), 0.0, X)
+
+    pred = np.asarray(estimator.predict(X_safe), dtype=np.float64).ravel()
+    pred = np.clip(pred, _LFMC_MIN_PERCENT, _LFMC_MAX_PERCENT)
+    pred[nan_mask] = np.nan
+
+    uncertainty = np.full(pred.shape, cv_rmse, dtype=np.float64)
+    uncertainty[nan_mask] = np.nan
+
+    low_flag = (pred < _LFMC_LOW_THRESHOLD_PERCENT) & ~nan_mask
+
+    template_coords = {d: refl.coords[d] for d in spatial_dims if d in refl.coords}
+
+    lfmc_map = xr.DataArray(
+        pred.reshape(spatial_shape),
+        dims=spatial_dims,
+        coords=template_coords,
+        name="lfmc_percent",
+        attrs={
+            "long_name": "live_fuel_moisture_content",
+            "units": "percent",
+            "valid_range": [_LFMC_MIN_PERCENT, _LFMC_MAX_PERCENT],
+            "method": method,
+        },
+    )
+    uncertainty_map = xr.DataArray(
+        uncertainty.reshape(spatial_shape),
+        dims=spatial_dims,
+        coords=template_coords,
+        name="lfmc_uncertainty",
+        attrs={
+            "long_name": "lfmc_prediction_uncertainty",
+            "units": "percent",
+            "source": "cv_rmse" if cv_rmse > 0 else "none",
+        },
+    )
+    low_lfmc_flag = xr.DataArray(
+        low_flag.reshape(spatial_shape),
+        dims=spatial_dims,
+        coords=template_coords,
+        name="low_lfmc",
+        attrs={
+            "threshold_percent": _LFMC_LOW_THRESHOLD_PERCENT,
+            "regime_note": "below threshold = nonlinear/fire-prone (Roberts et al. 2006)",
+        },
+    )
+
+    logger.info(
+        "predict_lfmc: %d pixels (%d NaN), LFMC range [%.1f, %.1f] %%, low_lfmc=%d (%.1f%%)",
+        int((~nan_mask).sum()),
+        int(nan_mask.sum()),
+        float(np.nanmin(pred)) if (~nan_mask).any() else float("nan"),
+        float(np.nanmax(pred)) if (~nan_mask).any() else float("nan"),
+        int(low_flag.sum()),
+        100.0 * float(low_flag.sum()) / max(1, n_pixels),
+    )
+
+    return {
+        "lfmc_map": lfmc_map,
+        "uncertainty_map": uncertainty_map,
+        "low_lfmc_flag": low_lfmc_flag,
+    }
