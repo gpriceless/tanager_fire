@@ -25,6 +25,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     "get_scene_metadata": "catalog",
     # io -------------------------------------------------------------------
     "load_scene": "io",
+    "load_ortho_scene": "io",
     "get_spatial_info": "io",
     # spectral -------------------------------------------------------------
     "select_bands": "spectral",

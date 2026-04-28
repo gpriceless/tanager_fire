@@ -1,12 +1,18 @@
 """Unit tests for tanager.io.
 
-All tests mock ``hypercoast.read_tanager`` so no HDF5 file is required.
-Live verification (426 bands, 380–2500 nm wavelength range) is covered by
-the integration comment at the bottom of this file.
+The ``load_scene`` and ``get_spatial_info`` tests mock
+``hypercoast.read_tanager`` so no HDF5 file is required. The ortho-path
+tests synthesize a minimal HDF5 file on disk (h5py is already a runtime
+dependency) so they exercise the real h5py read path.
+
+Live verification on full Tanager scenes (713×791 etc., 426 bands, EPSG:32611)
+is covered by ``tests/test_io_ortho_realdata.py`` when real ortho files are
+present in ``data/raw/fire``.
 
 Test naming: <function>_<scenario>_<expected_outcome>
 """
 
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -360,7 +366,267 @@ class TestGetSpatialInfo:
 
 
 # ---------------------------------------------------------------------------
-# Integration note (Task 5)
+# Ortho SR product loading (LGT-303)
+# ---------------------------------------------------------------------------
+#
+# Ortho-rectified products lack the Latitude/Longitude datasets HyperCoast
+# requires, so ``load_ortho_scene`` reads ``HDFEOS/GRIDS/HYP`` directly via
+# h5py. These tests synthesize a minimal but valid HDF5 file matching the
+# real ortho schema so they exercise the actual h5py code path.
+
+
+def _write_synthetic_ortho_h5(
+    path: Path,
+    *,
+    n_bands: int = 16,
+    y_dim: int = 4,
+    x_dim: int = 5,
+    wl_min: float = 400.0,
+    wl_max: float = 2400.0,
+    upper_left: tuple[float, float] = (329340.0, 3775800.0),
+    lower_right: tuple[float, float] = (353070.0, 3754410.0),
+    epsg_code: int = 32611,
+    fill_value: float = -9999.0,
+    insert_fill_pixels: bool = True,
+    write_epsg_attr: bool = True,
+    zone_code: int = 11,
+) -> np.ndarray:
+    """Create a minimal HDF5 file matching Tanager ortho SR layout.
+
+    Returns the wavelength array used so tests can assert exact band values.
+    """
+    import h5py
+
+    wavelengths = np.linspace(wl_min, wl_max, n_bands).astype(np.float32)
+    fwhm = np.full(n_bands, 5.5, dtype=np.float32)
+    good = np.ones(n_bands, dtype=np.uint8)
+
+    rng = np.random.default_rng(0)
+    cube = rng.random((n_bands, y_dim, x_dim)).astype(np.float32)
+    if insert_fill_pixels:
+        cube[:, 0, 0] = fill_value  # corner pixel is nodata across all bands
+
+    struct_metadata = (
+        "GROUP=GridStructure\n"
+        "\tGROUP=GRID_1\n"
+        '\t\tGridName="HYP"\n'
+        f"\t\tBand={n_bands}\n"
+        f"\t\tXDim={x_dim}\n"
+        f"\t\tYDim={y_dim}\n"
+        f"\t\tUpperLeftPointMtrs=({upper_left[0]:.2f},{upper_left[1]:.2f})\n"
+        f"\t\tLowerRightMtrs=({lower_right[0]:.2f},{lower_right[1]:.2f})\n"
+        "\t\tProjection=HE5_GCTP_UTM\n"
+        f"\t\tZoneCode={zone_code}\n"
+        "\t\tSphereCode=12\n"
+        "\t\tGridOrigin=HE5_HDFE_GD_UL\n"
+        "\tEND_GROUP=GRID_1\n"
+        "END_GROUP=GridStructure\n"
+    )
+
+    with h5py.File(path, "w") as f:
+        sr = f.create_dataset(
+            "HDFEOS/GRIDS/HYP/Data Fields/surface_reflectance", data=cube
+        )
+        sr.attrs["wavelengths"] = wavelengths
+        sr.attrs["wavelengths_units"] = np.bytes_("nm")
+        sr.attrs["fwhm"] = fwhm
+        sr.attrs["fwhm_units"] = np.bytes_("nm")
+        sr.attrs["good_wavelengths"] = good
+        sr.attrs["_FillValue"] = np.float32(fill_value)
+        sr.attrs["Unit"] = np.bytes_("Unitless")
+
+        hyp = f["HDFEOS/GRIDS/HYP"]
+        hyp.attrs["strip_id"] = np.bytes_("test_strip_0001")
+        hyp.attrs["created_at"] = np.bytes_("2026-04-27T00:00:00Z")
+        if write_epsg_attr:
+            hyp.attrs["epsg_code"] = np.int64(epsg_code)
+
+        f.create_dataset(
+            "HDFEOS INFORMATION/StructMetadata.0", data=np.bytes_(struct_metadata)
+        )
+
+    return wavelengths
+
+
+@pytest.fixture
+def synthetic_ortho_h5(tmp_path) -> Path:
+    """Write a synthetic ortho SR file and return its path."""
+    path = tmp_path / "ortho.h5"
+    _write_synthetic_ortho_h5(path)
+    return path
+
+
+class TestLoadOrthoScene:
+    def test_returns_dataset_with_expected_dims(self, synthetic_ortho_h5):
+        from tanager.io import load_ortho_scene
+
+        ds = load_ortho_scene(synthetic_ortho_h5)
+
+        assert isinstance(ds, xr.Dataset)
+        assert tuple(ds["surface_reflectance"].dims) == ("wavelength", "y", "x")
+        assert ds.sizes == {"wavelength": 16, "y": 4, "x": 5}
+
+    def test_wavelength_coord_matches_hdf5(self, tmp_path):
+        from tanager.io import load_ortho_scene
+
+        path = tmp_path / "ortho.h5"
+        wl_expected = _write_synthetic_ortho_h5(path)
+
+        ds = load_ortho_scene(path)
+        np.testing.assert_allclose(
+            ds.coords["wavelength"].values, wl_expected, rtol=0, atol=1e-6
+        )
+
+    def test_xy_coords_are_utm_pixel_centers(self, synthetic_ortho_h5):
+        """x/y coords should be UTM pixel centres derived from corner metadata."""
+        from tanager.io import load_ortho_scene
+
+        ds = load_ortho_scene(synthetic_ortho_h5)
+        # UL=(329340, 3775800), LR=(353070, 3754410), 5x4 pixels
+        # x_res = (353070 - 329340) / 5 = 4746
+        # y_res = (3775800 - 3754410) / 4 = 5347.5
+        x_res = (353070.0 - 329340.0) / 5
+        y_res = (3775800.0 - 3754410.0) / 4
+        assert ds.coords["x"].values[0] == pytest.approx(329340.0 + 0.5 * x_res)
+        assert ds.coords["x"].values[-1] == pytest.approx(353070.0 - 0.5 * x_res)
+        # y descends north→south
+        assert ds.coords["y"].values[0] == pytest.approx(3775800.0 - 0.5 * y_res)
+        assert ds.coords["y"].values[-1] == pytest.approx(3754410.0 + 0.5 * y_res)
+        assert ds.coords["y"].values[0] > ds.coords["y"].values[-1]
+
+    def test_crs_from_epsg_attr(self, synthetic_ortho_h5):
+        from tanager.io import load_ortho_scene
+
+        ds = load_ortho_scene(synthetic_ortho_h5)
+        assert ds.attrs["crs"] == "EPSG:32611"
+        assert ds.attrs["epsg"] == 32611
+
+    def test_crs_falls_back_to_utm_zone(self, tmp_path):
+        """When epsg_code attr is absent, derive EPSG from UTM zone."""
+        from tanager.io import load_ortho_scene
+
+        path = tmp_path / "ortho_no_epsg.h5"
+        _write_synthetic_ortho_h5(path, write_epsg_attr=False, zone_code=11)
+        ds = load_ortho_scene(path)
+        # Northern UTM zone 11 → EPSG:32611
+        assert ds.attrs["crs"] == "EPSG:32611"
+
+    def test_fill_values_are_nan(self, synthetic_ortho_h5):
+        from tanager.io import load_ortho_scene
+
+        ds = load_ortho_scene(synthetic_ortho_h5)
+        # Corner pixel (0,0) was filled with -9999 in the fixture
+        assert np.isnan(ds["surface_reflectance"].values[:, 0, 0]).all()
+        assert (ds["surface_reflectance"].values == -9999.0).sum() == 0
+
+    def test_includes_toa_radiance_alias(self, synthetic_ortho_h5):
+        from tanager.io import load_ortho_scene
+
+        ds = load_ortho_scene(synthetic_ortho_h5)
+        assert "toa_radiance" in ds.data_vars
+        assert ds.attrs["data_var"] == "surface_reflectance"
+
+    def test_includes_fwhm_and_good_wavelengths(self, synthetic_ortho_h5):
+        from tanager.io import load_ortho_scene
+
+        ds = load_ortho_scene(synthetic_ortho_h5)
+        assert "fwhm" in ds.coords
+        assert "good_wavelengths" in ds.coords
+        assert ds.coords["fwhm"].dims == ("wavelength",)
+        assert ds.coords["good_wavelengths"].dims == ("wavelength",)
+
+    def test_wavelength_range_subsets_bands(self, tmp_path):
+        from tanager.io import load_ortho_scene
+
+        path = tmp_path / "ortho.h5"
+        _write_synthetic_ortho_h5(path, n_bands=20, wl_min=400.0, wl_max=2400.0)
+
+        ds = load_ortho_scene(path, wavelength_range=(800.0, 1200.0))
+        wl = ds.coords["wavelength"].values
+        assert float(wl.min()) >= 800.0
+        assert float(wl.max()) <= 1200.0
+        assert ds.sizes["wavelength"] < 20
+
+    def test_wavelength_range_no_match_raises(self, synthetic_ortho_h5):
+        from tanager.io import load_ortho_scene
+
+        with pytest.raises(ValueError, match="selects no bands"):
+            load_ortho_scene(synthetic_ortho_h5, wavelength_range=(3000.0, 4000.0))
+
+    def test_missing_sr_dataset_raises(self, tmp_path):
+        """Files without HDFEOS/GRIDS/HYP/Data Fields/surface_reflectance fail clearly."""
+        import h5py
+
+        from tanager.io import load_ortho_scene
+
+        path = tmp_path / "not_ortho.h5"
+        with h5py.File(path, "w") as f:
+            f.create_dataset("foo/bar", data=np.zeros(3))
+        with pytest.raises(ValueError, match="not a Tanager ortho SR product"):
+            load_ortho_scene(path)
+
+    def test_unreadable_file_raises_value_error(self, tmp_path):
+        from tanager.io import load_ortho_scene
+
+        path = tmp_path / "missing.h5"
+        # File doesn't exist — h5py raises OSError; we wrap as ValueError.
+        with pytest.raises(ValueError, match="Cannot read Tanager HDF5 file"):
+            load_ortho_scene(path)
+
+    def test_get_spatial_info_works(self, synthetic_ortho_h5):
+        from tanager.io import get_spatial_info, load_ortho_scene
+
+        ds = load_ortho_scene(synthetic_ortho_h5)
+        info = get_spatial_info(ds)
+        assert info["crs"] == "EPSG:32611"
+        assert info["shape"] == (4, 5)
+        assert info["resolution"] is not None
+
+
+class TestLoadSceneOrthoFallback:
+    """load_scene should fall back to ortho path when HyperCoast can't handle the file."""
+
+    def test_falls_back_when_hypercoast_misses_latlon(self, tmp_path):
+        from tanager.io import load_scene
+
+        path = tmp_path / "ortho.h5"
+        _write_synthetic_ortho_h5(path)
+        latlon_err = ValueError(
+            "Could not locate Latitude/Longitude datasets in the Tanager HDF5 file."
+        )
+        with patch("hypercoast.read_tanager", side_effect=latlon_err):
+            ds = load_scene(path)
+        assert ds.attrs["product"] == "ortho_sr"
+        assert tuple(ds["surface_reflectance"].dims) == ("wavelength", "y", "x")
+
+    def test_unrelated_value_error_does_not_fall_back(self, tmp_path):
+        """A ValueError that is not about lat/lon must not silently fall back."""
+        from tanager.io import load_scene
+
+        fake = tmp_path / "scene.h5"
+        fake.touch()
+        with patch(
+            "hypercoast.read_tanager",
+            side_effect=ValueError("HDF5 cube is corrupted"),
+        ):
+            with pytest.raises(ValueError, match="Invalid or corrupted"):
+                load_scene(fake)
+
+    def test_subset_propagates_through_fallback(self, tmp_path):
+        from tanager.io import load_scene
+
+        path = tmp_path / "ortho.h5"
+        _write_synthetic_ortho_h5(path, n_bands=20, wl_min=400.0, wl_max=2400.0)
+        latlon_err = ValueError("Could not locate Latitude/Longitude datasets")
+        with patch("hypercoast.read_tanager", side_effect=latlon_err):
+            ds = load_scene(path, wavelength_range=(800.0, 1200.0))
+        wl = ds.coords["wavelength"].values
+        assert float(wl.min()) >= 800.0
+        assert float(wl.max()) <= 1200.0
+
+
+# ---------------------------------------------------------------------------
+# Integration note
 # ---------------------------------------------------------------------------
 #
 # Live verification requires a downloaded Tanager .h5 file.  To verify:
@@ -368,7 +634,7 @@ class TestGetSpatialInfo:
 #   from tanager.io import load_scene, get_spatial_info
 #   from tanager.config import SENSOR, DATA_DIR
 #
-#   scene_file = DATA_DIR / "20250123_185507_64_4001.h5"
+#   scene_file = DATA_DIR / "20250123_185507_64_4001_ortho_sr_hdf5.h5"
 #   ds = load_scene(scene_file)
 #
 #   assert ds.sizes["wavelength"] == SENSOR.n_bands          # 426
@@ -380,3 +646,4 @@ class TestGetSpatialInfo:
 #
 #   info = get_spatial_info(ds)
 #   assert info["shape"] == (ds.sizes["y"], ds.sizes["x"])
+#   assert info["crs"] == "EPSG:32611"
