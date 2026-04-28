@@ -207,3 +207,272 @@ def _compute_sai(
     if not np.isfinite(sai):
         return 0.0
     return float(np.clip(sai, 0.0, 1.0))
+
+
+# ---------------------------------------------------------------------------
+# Multi-pixel index maps
+# ---------------------------------------------------------------------------
+
+
+def _scene_reflectance(scene: Any) -> xr.DataArray:
+    """Return the reflectance DataArray from either a Dataset or a bare DataArray."""
+    if isinstance(scene, xr.Dataset):
+        if "reflectance" not in scene.data_vars:
+            raise ValueError("scene Dataset must contain a 'reflectance' variable")
+        return scene["reflectance"]
+    if isinstance(scene, xr.DataArray):
+        return scene
+    raise TypeError(f"scene must be xr.Dataset or xr.DataArray, got {type(scene).__name__}")
+
+
+def _sai_map(
+    reflectance: xr.DataArray,
+    target_wl: float,
+    left_shoulder: float,
+    right_shoulder: float,
+) -> xr.DataArray:
+    """Vectorized SAI over a (wavelength, y, x) reflectance cube.
+
+    The math is identical to :func:`_compute_sai`; the implementation skips
+    the per-pixel Python loop by selecting the three relevant bands once
+    and operating on the resulting ``(y, x)`` arrays. All edge-case guards
+    that drive ``_compute_sai`` to ``0.0`` produce the same per-pixel value
+    here (zero-valued cells in the output map).
+    """
+    if not (left_shoulder < target_wl < right_shoulder):
+        template = reflectance.isel(wavelength=0, drop=True)
+        return xr.zeros_like(template, dtype=np.float64)
+
+    wl_axis = reflectance.coords["wavelength"]
+    wl_min = float(wl_axis.min())
+    wl_max = float(wl_axis.max())
+    if left_shoulder < wl_min or right_shoulder > wl_max:
+        template = reflectance.isel(wavelength=0, drop=True)
+        return xr.zeros_like(template, dtype=np.float64)
+
+    r_target = reflectance.sel(wavelength=target_wl, method="nearest").astype(np.float64)
+    r_left = reflectance.sel(wavelength=left_shoulder, method="nearest").astype(np.float64)
+    r_right = reflectance.sel(wavelength=right_shoulder, method="nearest").astype(np.float64)
+
+    wl_target = float(r_target.coords["wavelength"].values)
+    wl_left = float(r_left.coords["wavelength"].values)
+    wl_right = float(r_right.coords["wavelength"].values)
+    if wl_right == wl_left:
+        return xr.zeros_like(r_target, dtype=np.float64)
+
+    # Drop the residual wavelength scalar coords so the arithmetic broadcasts
+    # over (y, x) without alignment churn.
+    r_target = r_target.drop_vars("wavelength", errors="ignore")
+    r_left = r_left.drop_vars("wavelength", errors="ignore")
+    r_right = r_right.drop_vars("wavelength", errors="ignore")
+
+    continuum = r_left + (r_right - r_left) * (wl_target - wl_left) / (wl_right - wl_left)
+    raw_sai = (continuum - r_target) / continuum
+    # Replicate _compute_sai's guards element-wise.
+    sai = xr.where(continuum <= 0.0, 0.0, raw_sai)
+    sai = xr.where(np.isfinite(sai), sai, 0.0)
+    return sai.clip(0.0, 1.0).rename(None)
+
+
+def _upper_hull_continuum(
+    reflectance: np.ndarray,
+    wavelengths: np.ndarray,
+) -> np.ndarray:
+    """Compute the upper convex-hull continuum of a single 1-D spectrum.
+
+    Uses Andrew's monotone-chain algorithm restricted to the upper boundary.
+    A locally-correct alternative to :func:`tanager.spectral.continuum_removal`
+    which interpolates through both upper *and* lower hull vertices and so
+    produces the lower envelope (and a downstream depth of 0) wherever an
+    absorption feature is present. This helper is private to lfmc.py so the
+    correction does not change the behaviour of any other module.
+    """
+    n = len(reflectance)
+    if n == 0:
+        return np.empty(0, dtype=np.float64)
+    if n < 3 or not np.all(np.isfinite(reflectance)):
+        # Not enough points to define a hull, or any NaN — fall back to the
+        # spectrum maximum so the downstream depth is computable but flat.
+        finite = reflectance[np.isfinite(reflectance)]
+        fill = float(finite.max()) if finite.size else 1.0
+        return np.full(n, fill if fill > 0 else 1.0, dtype=np.float64)
+
+    # Operate in wavelength-sorted space, then restore the caller's order.
+    order = np.argsort(wavelengths)
+    wl_s = wavelengths[order].astype(np.float64)
+    r_s = reflectance[order].astype(np.float64)
+
+    upper: list[Tuple[float, float]] = []
+    for i in range(n):
+        while len(upper) >= 2:
+            ox, oy = upper[-2]
+            ax, ay = upper[-1]
+            bx, by = wl_s[i], r_s[i]
+            # Cross product of (a - o) and (b - o); for an upper hull we keep
+            # only right turns (cross < 0). Discard non-strict left turns.
+            cross = (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
+            if cross >= 0.0:
+                upper.pop()
+            else:
+                break
+        upper.append((wl_s[i], r_s[i]))
+
+    hull_x = np.array([p[0] for p in upper], dtype=np.float64)
+    hull_y = np.array([p[1] for p in upper], dtype=np.float64)
+    continuum_sorted = np.interp(wl_s, hull_x, hull_y)
+
+    # Restore caller's wavelength order.
+    inv = np.empty_like(order)
+    inv[order] = np.arange(n)
+    return continuum_sorted[inv]
+
+
+def _continuum_removal_depths(
+    scene: Any,
+    target_wls: Sequence[float],
+    *,
+    wavelength_range: Tuple[float, float] = (800.0, 2400.0),
+) -> xr.DataArray:
+    """Compute upper-hull continuum-removal depths at the requested wavelengths.
+
+    Returns a DataArray with dims ``(cr_target, y, x)`` where each slice along
+    ``cr_target`` is the absorption depth (``1 − R/R_continuum``) at the
+    corresponding wavelength. The continuum hull is fit on
+    ``wavelength_range`` to keep cost bounded; this window contains all of
+    the standard liquid-water absorption features (970, 1200, 1660, 2100 nm).
+    Reflectance is clipped to ``[0, 1]`` before hull fitting to avoid
+    negative ISOFIT shadow values from anchoring the lower hull.
+    """
+    refl = _scene_reflectance(scene).clip(0.0, 1.0).astype(np.float64)
+    wl_coord = refl.coords["wavelength"]
+    in_window = (wl_coord >= wavelength_range[0]) & (wl_coord <= wavelength_range[1])
+    refl_window = refl.sel(wavelength=in_window)
+    wl_window = refl_window.coords["wavelength"].values.astype(np.float64)
+
+    def _hull(spectrum: np.ndarray) -> np.ndarray:
+        return _upper_hull_continuum(spectrum, wl_window)
+
+    continuum = xr.apply_ufunc(
+        _hull,
+        refl_window,
+        input_core_dims=[["wavelength"]],
+        output_core_dims=[["wavelength"]],
+        vectorize=True,
+        output_dtypes=[np.float64],
+    ).transpose("wavelength", ...)
+
+    safe_continuum = xr.where(continuum > 0.0, continuum, np.nan)
+    cr = refl_window / safe_continuum
+
+    depth_slices = []
+    for tgt in target_wls:
+        slice_da = (1.0 - cr.sel(wavelength=tgt, method="nearest")).astype(np.float64)
+        depth_slices.append(slice_da.drop_vars("wavelength", errors="ignore"))
+    stacked = xr.concat(depth_slices, dim="cr_target")
+    stacked = stacked.assign_coords(cr_target=("cr_target", list(map(float, target_wls))))
+    return stacked.transpose("cr_target", ...)
+
+
+def compute_lfmc_indices(scene: Any) -> xr.Dataset:
+    """Compute eight water-sensitive indices for an LFMC scene.
+
+    The returned Dataset contains:
+
+    * ``SAI970``, ``SAI1200``, ``SAI1660`` — Spectral Absorption Indices at
+      the three liquid-water absorption features (Quan et al. 2021).
+    * ``NDWI_1240``, ``NDWI_1640``, ``NDWI_2130`` — three NDWI variants
+      (Gao 1996 et al.) using R860 as the NIR reference: each is computed
+      via the epsilon-guarded normalized difference from
+      :mod:`tanager.spectral` so near-zero denominators produce NaN rather
+      than blow-up values.
+    * ``WI`` — Peñuelas et al. (1993) Water Index, ``R900 / R970``.
+    * ``CR_depths`` — convex-hull continuum-removal absorption depths at
+      970, 1200, 1700, and 2100 nm. Stored as a 3-D variable with dims
+      ``(cr_target, y, x)`` and a ``cr_target`` coordinate naming each
+      wavelength so callers can ``isel(cr_target=...)`` or
+      ``sel(cr_target=970.0)``.
+
+    Reflectance is clamped to ``[0, 1]`` before any index math (see Phase 2
+    finding LGT-311: real Tanager ISOFIT surface reflectance has ~13%
+    negative values that would corrupt SAI continua and ratio-based indices).
+
+    Args:
+        scene: xr.Dataset with a ``reflectance`` variable shaped
+            ``(wavelength, y, x)`` and a ``wavelength`` coordinate (nm), or
+            an equivalent DataArray.
+
+    Returns:
+        xr.Dataset with the 8 index variables described above. The
+        ``(y, x)`` dims and coords from the input scene are preserved on
+        every variable.
+
+    Raises:
+        ValueError: If ``scene`` is a Dataset without a ``reflectance``
+            variable, or if the wavelength axis does not span the bands
+            required by these indices (roughly 800–2400 nm).
+    """
+    refl = _scene_reflectance(scene)
+
+    if "wavelength" not in refl.coords:
+        raise ValueError("scene reflectance must have a 'wavelength' coordinate")
+
+    wl = refl.coords["wavelength"]
+    wl_min = float(wl.min())
+    wl_max = float(wl.max())
+    required_min, required_max = 860.0, 2130.0
+    if wl_min > required_min or wl_max < required_max:
+        raise ValueError(
+            f"scene wavelength axis [{wl_min:.0f}, {wl_max:.0f}] nm does not span "
+            f"the bands required for LFMC indices (need at least "
+            f"[{required_min:.0f}, {required_max:.0f}] nm)"
+        )
+
+    # Phase 2 mitigation: clamp before index math.
+    refl = refl.clip(0.0, 1.0).astype(np.float64)
+
+    # Heavy import here so module import stays cheap.
+    from tanager.spectral import _normalized_difference
+
+    out_vars: dict[str, xr.DataArray] = {}
+
+    # SAI indices — shoulder windows chosen to bracket each absorption feature
+    # with continuum anchors that fall outside the feature wing.
+    sai_targets = (
+        ("SAI970", 970.0, 850.0, 1100.0),
+        ("SAI1200", 1200.0, 1080.0, 1320.0),
+        ("SAI1660", 1660.0, 1530.0, 1790.0),
+    )
+    for name, target, left, right in sai_targets:
+        out_vars[name] = _sai_map(refl, target, left, right)
+
+    # NDWI variants — R860 as the NIR baseline (per Gao 1996 NDWI convention).
+    nir = refl.sel(wavelength=860.0, method="nearest").drop_vars("wavelength", errors="ignore")
+    for name, _, target_wl in _NDWI_PAIRS:
+        b_target = refl.sel(wavelength=target_wl, method="nearest").drop_vars(
+            "wavelength", errors="ignore"
+        )
+        out_vars[name] = _normalized_difference(nir, b_target).astype(np.float64)
+
+    # Water Index — R900 / R970, with a near-zero-denominator guard.
+    r900 = refl.sel(wavelength=_WI_NUMERATOR_NM, method="nearest").drop_vars(
+        "wavelength", errors="ignore"
+    )
+    r970 = refl.sel(wavelength=_WI_DENOMINATOR_NM, method="nearest").drop_vars(
+        "wavelength", errors="ignore"
+    )
+    wi = xr.where(np.abs(r970) < 1e-3, np.nan, r900 / r970).astype(np.float64)
+    out_vars["WI"] = wi
+
+    # Continuum-removal depths at the four standard water-absorption features.
+    out_vars["CR_depths"] = _continuum_removal_depths(
+        scene if isinstance(scene, xr.Dataset) else refl,
+        target_wls=(970.0, 1200.0, 1700.0, 2100.0),
+    )
+
+    indices = xr.Dataset(out_vars)
+    logger.info(
+        "compute_lfmc_indices: emitted %d variables (%s)",
+        len(indices.data_vars),
+        ", ".join(indices.data_vars),
+    )
+    return indices
