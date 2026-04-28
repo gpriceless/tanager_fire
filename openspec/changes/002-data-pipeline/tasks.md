@@ -55,29 +55,29 @@
 <!-- execution_mode: sequential (within track) -->
 <!-- network: REQUIRED — tasks 1-5 can be coded offline, but task 6 (verify) requires internet to reach planet.com STAC catalog -->
 
-- [ ] Create `src/tanager/catalog.py` with `list_fire_scenes()` that traverses the static STAC catalog via pystac, returns scene items with ID, datetime, bbox, and asset keys
+- [x] Create `src/tanager/catalog.py` with `list_fire_scenes()` that traverses the static STAC catalog via pystac, returns scene items with ID, datetime, bbox, and asset keys
   <!-- files: src/tanager/catalog.py (new) -->
   <!-- pattern: use pystac.Catalog.from_file("https://www.planet.com/data/stac/tanager-core-imagery/catalog.json"), then catalog.get_child("fire"), then iterate items. See research/tanager-data-access-evaluation.md Section 1 and Section 7 for exact code pattern. -->
   <!-- gotcha: this is a STATIC catalog — use pystac, NOT pystac-client. No /search endpoint exists. -->
 
-- [ ] Add `list_fire_scenes(start_date, end_date)` date range filtering
+- [x] Add `list_fire_scenes(start_date, end_date)` date range filtering
   <!-- files: src/tanager/catalog.py (modify) -->
   <!-- gotcha: STAC item.datetime is a Python datetime object. Parse start_date/end_date strings to datetime for comparison. Handle timezone awareness — STAC datetimes may be tz-aware (UTC). -->
 
-- [ ] Add `get_scene_metadata(item)` returning structured metadata dict (scene_id, datetime, bbox, product_types, file_size_mb)
+- [x] Add `get_scene_metadata(item)` returning structured metadata dict (scene_id, datetime, bbox, product_types, file_size_mb)
   <!-- files: src/tanager/catalog.py (modify) -->
   <!-- gotcha: file_size_mb may not be available in STAC metadata for all assets. Return None for file_size_mb if not present rather than erroring. product_types = list(item.assets.keys()). -->
 
-- [ ] Add `download_scene(item, product_type, output_dir, overwrite)` with streaming download, skip-existing logic, and progress logging
+- [x] Add `download_scene(item, product_type, output_dir, overwrite)` with streaming download, skip-existing logic, and progress logging
   <!-- files: src/tanager/catalog.py (modify) -->
   <!-- pattern: follow research/tanager-data-access-evaluation.md Section 7 Step 2 for download pattern. Use requests.get(url, stream=True) with iter_content(chunk_size=8192). Log via Python logging module, not print(). -->
   <!-- gotcha: no auth required. Files are ~480 MB each. Use Content-Length header for progress percentage if available. Default overwrite=False. Return Path object for downloaded file. -->
 
-- [ ] Add `ConnectionError` handling when catalog URL is unreachable
+- [x] Add `ConnectionError` handling when catalog URL is unreachable
   <!-- files: src/tanager/catalog.py (modify) -->
   <!-- gotcha: wrap pystac.Catalog.from_file() call in try/except for requests.exceptions.ConnectionError and pystac errors. Re-raise as ConnectionError with descriptive message including the URL that failed. -->
 
-- [ ] Verify: `catalog.list_fire_scenes()` returns items from the live STAC catalog
+- [x] Verify: `catalog.list_fire_scenes()` returns items from the live STAC catalog
   <!-- verify: manual — requires network. Run `python -c "from tanager.catalog import list_fire_scenes; items = list_fire_scenes(); print(f'{len(items)} scenes found')"`. Expect 11-12 items. Record actual count and update FIRE_SCENES in config.py if needed. -->
   <!-- network: REQUIRED — live STAC catalog query -->
 
