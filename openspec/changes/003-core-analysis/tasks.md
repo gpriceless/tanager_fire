@@ -49,7 +49,7 @@
 <!-- execution_mode: sequential -->
 <!-- network: REQUIRED — pip install fetches packages from PyPI and GitHub -->
 
-- [ ] Add new dependencies to `pyproject.toml`: mesma>=1.0.8, spectral-libraries>=1.1.3, splib07-loader (git+https://github.com/RobertSparworthy/splib07-loader.git), joblib
+- [x] Add new dependencies to `pyproject.toml`: mesma>=1.0.8, spectral-libraries>=1.1.3, splib07-loader (git+https://github.com/RobertSparworthy/splib07-loader.git), joblib
   <!-- files: pyproject.toml (modify) -->
   <!-- gotcha: splib07-loader is not on PyPI — must use git+https URL in dependencies list.
        Format: "splib07-loader @ git+https://github.com/.../splib07-loader.git"
@@ -61,7 +61,7 @@
   <!-- test: pip install -e ".[dev]" succeeds -->
   <!-- acceptance: pyproject.toml has all 4 new deps; pip install succeeds without errors -->
 
-- [ ] Verify mesma v1.0.8 installs successfully with current Python/numpy versions; document result
+- [x] Verify mesma v1.0.8 installs successfully with current Python/numpy versions; document result
   <!-- files: (none — verification only, document in Plane comment) -->
   <!-- gotcha: run BOTH import test AND functional test:
        1. `pip install mesma>=1.0.8 && python -c "import mesma; print(mesma.__version__)"`
@@ -72,13 +72,13 @@
   <!-- risk: HIGH — this is the critical path decision point for the entire unmixing pipeline -->
   <!-- acceptance: documented result (PASS or FAIL) with specific Python/numpy versions tested -->
 
-- [ ] Verify spectral-libraries v1.1.3 installs and `EarMasaCob` class is importable
+- [x] Verify spectral-libraries v1.1.3 installs and `EarMasaCob` class is importable
   <!-- files: (none — verification only) -->
   <!-- gotcha: `from spectral_libraries import EarMasaCob` — note underscore in package name vs
        hyphen in PyPI name. Verify the class exists and can be instantiated. -->
   <!-- acceptance: import succeeds; EarMasaCob class is callable -->
 
-- [ ] If mesma fails to install: document failure, flag HySUPP as primary, and adjust downstream tasks
+- [x] If mesma fails to install: document failure, flag HySUPP as primary, and adjust downstream tasks
   <!-- files: pyproject.toml (modify — move mesma to optional deps), Plane comment -->
   <!-- dep: blocked_by task 2 result -->
   <!-- gotcha: if mesma fails, the coder must: (1) move mesma to optional deps in pyproject.toml,
@@ -91,7 +91,7 @@
 <!-- execution_mode: sequential -->
 <!-- network: none for coding — loaders read local files. Verify tasks may need downloaded data. -->
 
-- [ ] Create `src/tanager/endmembers.py` with module docstring, logging setup, and type annotations
+- [x] Create `src/tanager/endmembers.py` with module docstring, logging setup, and type annotations
   <!-- files: src/tanager/endmembers.py (new) -->
   <!-- pattern: follow src/tanager/spectral.py for module structure — __future__ annotations import,
        logging.getLogger(__name__), type imports from typing. Module docstring should list public API. -->
@@ -100,19 +100,24 @@
        Other modules (unmixing.py, severity.py) will import FROM endmembers.py. -->
   <!-- acceptance: module imports cleanly with `from tanager import endmembers` -->
 
-- [ ] Implement `load_usgs_library(categories, data_dir)` using splib07-loader; return xarray DataArray (spectrum_id, wavelength) with metadata attrs
+- [ ] Implement `load_usgs_library(categories, data_dir)` parsing USGS v7 ASCII files; return xarray DataArray (spectrum_id, wavelength) with metadata attrs
   <!-- files: src/tanager/endmembers.py (modify) -->
   <!-- pattern: return xr.DataArray with dims=(spectrum_id, wavelength), coords={wavelength: nm values},
        attrs={name: str, category: str, source: "usgs_v7"} per spectrum. Use spectrum_id as a
        string coordinate (e.g., "usgs_char_001"). -->
-  <!-- gotcha: splib07-loader API — check its README for exact function signatures. It likely
-       returns numpy arrays or dicts. The coder needs to discover the API and wrap it.
+  <!-- gotcha: *** splib07-loader is INCOMPATIBLE (nptyping pins numpy<2.0, breaks rasterio/rioxarray).
+       DO NOT attempt to install or use splib07-loader. ***
+       Instead: parse USGS v7 ASCII text files directly. Data source: ASCIIdata_splib07a.zip
+       (20.8 MB from ScienceBase DOI:10.5066/F7RR1WDJ). Files with s07ASD prefix = ASD
+       spectrometer, 2151 channels, 350-2500nm at ~1nm resolution.
+       ASCII format: tab-delimited, wavelength (micrometers) + reflectance columns.
+       Convert wavelengths from micrometers to nm (* 1000).
        categories parameter should filter by material type: "char", "soil", "vegetation", etc.
-       USGS v7 uses SPECPR format internally; splib07-loader handles that.
+       Category assignment from filename/header parsing or a manual mapping dict.
        Exclude spectra with all-NaN in VSWIR range (380-2500nm) per spec. -->
   <!-- gotcha: USGS v7 spectra are at 1nm resolution (ASD measurements). The returned DataArray
        should be at source resolution — resampling to Tanager bands is a separate function. -->
-  <!-- dep: requires splib07-loader installed (Section 1 task 1) -->
+  <!-- dep: requires USGS v7 ASCII data files downloaded to data_dir -->
   <!-- test: tests/test_endmembers.py — mock file I/O, verify output schema -->
   <!-- acceptance: returns DataArray with correct dims, spectra filtered by category, NaN spectra excluded -->
 
@@ -175,8 +180,8 @@
   <!-- acceptance: merged DataArray with source attribute; wavelength alignment enforced; None inputs handled -->
 
 - [ ] Verify: Load USGS library, resample to Tanager bands, confirm output has 426 wavelengths and reflectance in [0, 1]
-  <!-- verify: requires splib07-loader data files. Can use mocked data for unit test, real data for integration test. -->
-  <!-- network: may require splib07-loader to download USGS v7 data on first run -->
+  <!-- verify: requires USGS v7 ASCII data files in data_dir. Can use mocked data for unit test, real data for integration test. -->
+  <!-- network: ASCII data must be pre-downloaded from ScienceBase (DOI:10.5066/F7RR1WDJ) -->
   <!-- acceptance: resampled output has exactly 426 bands; all values in [0, 1] -->
 
 ### Section 3: Endmember Selection
@@ -199,9 +204,11 @@
 
 - [ ] Implement `prune_endmembers_ear_masa(library, threshold_ear, threshold_masa)` wrapping spectral-libraries EarMasaCob
   <!-- files: src/tanager/endmembers.py (modify) -->
-  <!-- pattern: `from spectral_libraries import EarMasaCob; selector = EarMasaCob(library_array)`
-       Check spectral-libraries API for exact method signatures. The library may need numpy arrays,
-       not xarray. Extract .values and class labels from the DataArray. -->
+  <!-- pattern: *** CORRECTED IMPORT PATH (QA verified) ***
+       `from spectral_libraries.core.ear_masa_cob import EarMasaCob` — NOT from top-level package.
+       Top-level `spectral_libraries.__init__` is a QGIS plugin classFactory and does NOT export EarMasaCob.
+       Public method: `EarMasaCob.execute()`. Requires numpy arrays, not xarray.
+       Extract .values and class labels from the DataArray before passing. -->
   <!-- gotcha: EarMasaCob computes EAR (Endmember Average RMSE) and MASA (Minimum Average Spectral
        Angle) for each endmember. Endmembers exceeding BOTH thresholds are removed.
        Default thresholds from Roberts et al. (2018): threshold_ear=0.025, threshold_masa=10.0 (degrees).
@@ -240,6 +247,8 @@
        target_wavelengths extracted from scene_pre.coords["wavelength"].values.
        frames_dir and usgs_dir can be None — skip those sources if not available. -->
   <!-- gotcha: shade endmember = np.zeros(n_bands) with category="shade", source="synthetic".
+       IMPORTANT for mesma: shade spectrum must be shaped (bands, 1) when passed to MesmaCore.execute().
+       In the library DataArray it's stored as a normal spectrum; reshape at call site.
        Per open question 5, single zero-reflectance is sufficient. -->
   <!-- dep: all previous endmember functions must exist -->
   <!-- test: tests/test_endmembers.py — test with mocked loaders, verify output size 50-80 -->
@@ -295,15 +304,25 @@ Verify: endmembers module imports cleanly, library loading works with test data,
 
 - [ ] Implement `run_mesma(scene, library, constraints, bands)` wrapping mesma v1.0.8 API; handle pixel-by-pixel unmixing with constraint filtering
   <!-- files: src/tanager/unmixing.py (modify) -->
-  <!-- gotcha: mesma v1.0.8 API — need to check the actual package API. Likely:
-       `mesma.mesma(image, endmembers, ...)` where image is (pixels, bands) and endmembers is
-       (n_endmembers, bands). The mesma package may expect specific array shapes.
-       Convert from xarray to numpy: scene["reflectance"].values → reshape for mesma input. -->
+  <!-- gotcha: mesma v1.0.8 API — CONFIRMED WORKING (Python 3.12.3 + numpy 2.4.4).
+       Full workflow:
+       1. `from mesma.core.mesma import MesmaCore, MesmaModels`
+       2. `models = MesmaModels(); models.setup(class_list)` — class_list = list of str per endmember
+       3. `look_up_table = models.return_look_up_table()` — auto-selects 2-EM and 3-EM combos
+       4. `core = MesmaCore(n_cores=N)`
+       5. `result = core.execute(image, library, look_up_table, em_per_class, constraints, fusion_value, shade_spectrum)`
+       6. Returns tuple: (best_model, best_fractions, best_rmse, residuals_or_None)
+       Image shape: (bands, rows, cols) or (bands, n_pixels) — BANDS FIRST.
+       Library shape: (bands, n_endmembers) — column per spectrum.
+       Shade spectrum: MUST be shape (bands, 1) — passing (bands,) breaks _subtract_shade broadcasting.
+       best_fractions shape: (n_classes+1, ny, nx); shade is LAST class; class order is SORTED ALPHABETICAL.
+       n_cores>1 uses threading (multiprocessing.dummy.Pool) — GIL-bound, limited speedup. -->
   <!-- gotcha: if bands parameter is provided, subset both scene and library to those bands
        before running MESMA. Use select_bands() for consistent wavelength matching. -->
-  <!-- gotcha: constraints dict has keys: max_rmse (float), min_fraction (float), max_fraction (float).
-       Default per spec: max_rmse=0.025, min_fraction=-0.05, max_fraction=1.05.
-       These are passed to mesma's constraint system OR applied as post-filtering. -->
+  <!-- gotcha: constraints is a TUPLE, not dict. Format:
+       (min_frac, max_frac, min_shade, max_shade, max_rmse, residual_flag, residual_flag)
+       Default per spec: (-0.05, 1.05, 0.0, 0.8, 0.025, -9999, -9999).
+       The public API should accept a user-friendly dict and convert internally. -->
   <!-- pattern: output xarray Dataset with variables: char, pv, npv, soil, shade, rmse.
        Dims: (y, x). Fractions sum to 1.0 within tolerance of 0.01.
        Pixels where no valid model found: all fractions = NaN, rmse = NaN.
@@ -681,8 +700,9 @@ Verify: severity module produces classified maps with correct class boundaries; 
        Create synthetic library DataArrays with known spectra for testing.
        Test cases: load_usgs_library returns correct schema, resample_library produces 426 bands,
        select_endmembers_incob respects max_per_class, prune reduces count, build_hybrid merges. -->
-  <!-- gotcha: mock splib07-loader and SPy EcostressDatabase — do not require real spectral
-       library data in unit tests. Create synthetic spectra matching the expected DataArray schema. -->
+  <!-- gotcha: mock USGS ASCII file I/O and SPy EcostressDatabase — do not require real spectral
+       library data in unit tests. Create synthetic spectra matching the expected DataArray schema.
+       Note: splib07-loader is NOT used (incompatible with numpy 2.x). USGS loader parses ASCII files directly. -->
   <!-- pattern: use conftest.py fixtures where applicable. Add new fixtures for endmember-specific
        test data (synthetic library with known categories). -->
   <!-- acceptance: all loader, resampler, selector, and pruner functions tested; mocks used for I/O -->
