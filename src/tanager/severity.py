@@ -264,3 +264,127 @@ def train_severity_model(
         "feature_names": feats,
         "n_samples": n_valid,
     }
+
+
+# ---------------------------------------------------------------------------
+# Prediction
+# ---------------------------------------------------------------------------
+
+
+def _resolve_model(
+    model: Any,
+    feature_names: Optional[Sequence[str]],
+) -> Tuple[Any, Tuple[str, ...]]:
+    """Accept either the dict returned by :func:`train_severity_model` or a bare estimator."""
+    if isinstance(model, Mapping):
+        estimator = model.get("model")
+        if estimator is None:
+            raise ValueError(
+                "model dict must contain a 'model' key with a fitted estimator"
+            )
+        feats = (
+            tuple(feature_names)
+            if feature_names is not None
+            else tuple(model.get("feature_names", _SEVERITY_FEATURES))
+        )
+    else:
+        estimator = model
+        feats = tuple(feature_names) if feature_names is not None else _SEVERITY_FEATURES
+    return estimator, feats
+
+
+def predict_severity(
+    fractions: xr.Dataset,
+    model: Any,
+    *,
+    feature_names: Optional[Sequence[str]] = None,
+) -> dict[str, xr.DataArray]:
+    """Apply a trained severity model to a fraction Dataset.
+
+    Produces:
+
+    * a continuous CBI map (clipped to ``[0, 3]``), and
+    * a 5-class BARC severity map using the thresholds:
+
+      - 0 (Unburned):       CBI < 0.10
+      - 1 (Low):            0.10 <= CBI < 1.00
+      - 2 (Moderate-Low):   1.00 <= CBI < 1.50
+      - 3 (Moderate-High):  1.50 <= CBI < 2.25
+      - 4 (High):           CBI >= 2.25
+
+    Pixels where any feature variable is NaN are propagated as NaN through
+    both output maps (the severity map uses ``float64`` so NaN can be
+    preserved alongside the integer-valued class codes).
+
+    Args:
+        fractions: xarray Dataset containing the feature variables (default
+            ``char``, ``pv``, ``npv``, ``soil``) shaped ``(y, x)``.
+        model: Either the dict returned by :func:`train_severity_model`
+            (preferred) or a bare fitted scikit-learn regressor.
+        feature_names: Optional override of the feature variable names.
+            Defaults to the value stored on the model dict, or
+            ``("char", "pv", "npv", "soil")`` for a bare estimator.
+
+    Returns:
+        Dict with keys:
+            ``cbi_map``: DataArray of continuous CBI values in ``[0, 3]``
+                (NaN where input was NaN), preserving the input ``(y, x)`` dims
+                and coordinates.
+            ``severity_map``: DataArray of class codes 0..4 as ``float64``
+                (NaN where input was NaN), same dims/coords.
+
+    Raises:
+        ValueError: If the model dict is missing the ``"model"`` key, or if
+            a required feature variable is absent from ``fractions``.
+    """
+    estimator, feats = _resolve_model(model, feature_names)
+
+    X, spatial_shape = _flatten_fractions(fractions, feats)
+    nan_mask = ~np.all(np.isfinite(X), axis=1)
+
+    # Replace NaN with 0 for prediction so sklearn does not warn / raise; we
+    # restore NaN on those pixels immediately after prediction.
+    X_safe = np.where(np.isnan(X), 0.0, X)
+    cbi_flat = np.asarray(estimator.predict(X_safe), dtype=np.float64)
+    cbi_flat = np.clip(cbi_flat, _CBI_MIN, _CBI_MAX)
+    cbi_flat[nan_mask] = np.nan
+
+    # BARC classification via np.digitize (left-closed bins by default).
+    edges = np.array([thresh for thresh, _code in _BARC_THRESHOLDS], dtype=np.float64)
+    severity_flat = np.full(cbi_flat.shape, np.nan, dtype=np.float64)
+    valid = ~nan_mask
+    severity_flat[valid] = np.digitize(cbi_flat[valid], edges, right=False).astype(np.float64)
+
+    # Re-attach (y, x) dims and coords from the first feature variable.
+    template = fractions[feats[0]]
+    out_dims = template.dims
+    out_coords = {name: template.coords[name] for name in out_dims if name in template.coords}
+
+    cbi_map = xr.DataArray(
+        cbi_flat.reshape(spatial_shape),
+        dims=out_dims,
+        coords=out_coords,
+        name="cbi",
+        attrs={"long_name": "composite_burn_index", "valid_range": [_CBI_MIN, _CBI_MAX]},
+    )
+    severity_map = xr.DataArray(
+        severity_flat.reshape(spatial_shape),
+        dims=out_dims,
+        coords=out_coords,
+        name="severity",
+        attrs={
+            "long_name": "barc_severity_class",
+            "class_codes": "0=unburned, 1=low, 2=moderate-low, 3=moderate-high, 4=high",
+            "thresholds": "0.10, 1.00, 1.50, 2.25",
+        },
+    )
+
+    logger.info(
+        "predict_severity: predicted %d pixels (%d NaN), CBI range [%.3f, %.3f]",
+        int(valid.sum()),
+        int(nan_mask.sum()),
+        float(np.nanmin(cbi_flat)) if valid.any() else float("nan"),
+        float(np.nanmax(cbi_flat)) if valid.any() else float("nan"),
+    )
+
+    return {"cbi_map": cbi_map, "severity_map": severity_map}
