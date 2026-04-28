@@ -15,29 +15,29 @@
 <!-- execution_mode: sequential -->
 <!-- network: none — all local file creation -->
 
-- [ ] Create `pyproject.toml` with project metadata, Python 3.10+ requirement, and all dependencies (hypercoast>=0.22.0,<1.0; spectral; rasterio; xarray; geopandas; scikit-learn; pystac; requests; spyndex; h5py) plus dev dependencies (pytest, ruff, mypy)
+- [x] Create `pyproject.toml` with project metadata, Python 3.10+ requirement, and all dependencies (hypercoast>=0.22.0,<1.0; spectral; rasterio; xarray; geopandas; scikit-learn; pystac; requests; spyndex; h5py) plus dev dependencies (pytest, ruff, mypy)
   <!-- files: pyproject.toml (new) -->
   <!-- gotcha: pin hypercoast>=0.22.0,<1.0 — research tested 0.20.2, latest is 0.22.0, API may shift pre-1.0. spyndex is now 0.10.0 (not 0.6.0 as in research). Add h5py — needed by masks.py for reading beta_cirrus_mask from raw HDF5 -->
   <!-- test: pip install -e . succeeds -->
 
-- [ ] Create `src/tanager/__init__.py` with package version and top-level imports
+- [x] Create `src/tanager/__init__.py` with package version and top-level imports
   <!-- files: src/tanager/__init__.py (new) -->
   <!-- gotcha: export the public API symbols: config (SENSOR, BAD_BAND_RANGES, FIRE_SCENES, BAND_ALIASES, DATA_DIR), catalog (list_fire_scenes, download_scene, get_scene_metadata), io (load_scene, get_spatial_info), spectral (select_bands, mask_bad_bands, nbr, ndvi, ndwi, dnbr, continuum_removal), masks (nodata_mask, cloud_mask, water_mask, apply_masks). Use lazy imports to avoid heavy dep loading at import time. -->
   <!-- test: `import tanager; print(tanager.__version__)` works -->
 
-- [ ] Create `src/tanager/config.py` with sensor parameters (SENSOR), bad band ranges (BAD_BAND_RANGES), fire scene catalog (FIRE_SCENES), band wavelength aliases (BAND_ALIASES), and data directory path (DATA_DIR with TANAGER_DATA_DIR env override)
+- [x] Create `src/tanager/config.py` with sensor parameters (SENSOR), bad band ranges (BAD_BAND_RANGES), fire scene catalog (FIRE_SCENES), band wavelength aliases (BAND_ALIASES), and data directory path (DATA_DIR with TANAGER_DATA_DIR env override)
   <!-- files: src/tanager/config.py (new) -->
   <!-- gotcha: FIRE_SCENES — the data access evaluation lists 11 named scene IDs but proposal says 12. Query the live STAC catalog to get the authoritative count before hardcoding. If 11 scenes are found, use 11 and update the spec. The scene table from research: 20241215_185916_33_4001 (pre-fire), 20250123_185507_64_4001, 20250123_185518_92_4001 (post-fire), 20250407_192235_24_4001, 20250407_192229_16_4001 (early recovery), 20250724_190927_83_4001, 20250726_192343_21_4001, 20250726_192422_87_4001 (mid recovery), 20250902_190116_02_4001, 20250902_190121_86_4001 (late recovery), 20250920_193207_61_4001 (N. Arizona). Include bbox per scene. -->
   <!-- gotcha: DATA_DIR must use Path(__file__).resolve().parent.parent.parent / "data" / "raw" / "fire" to find project root relative to installed package. Override with os.environ.get("TANAGER_DATA_DIR"). -->
   <!-- gotcha: SENSOR should be a SimpleNamespace or dataclass, not a plain dict, so fields are accessible via dot notation (SENSOR.n_bands, not SENSOR["n_bands"]). Spec says "namespace or dictionary" — prefer namespace. -->
   <!-- test: from tanager.config import SENSOR; assert SENSOR.n_bands == 426 -->
 
-- [ ] Create `data/raw/fire/.gitkeep` and add `data/raw/fire/*.h5` to `.gitignore`
+- [x] Create `data/raw/fire/.gitkeep` and add `data/raw/fire/*.h5` to `.gitignore`
   <!-- files: data/raw/fire/.gitkeep (new), .gitignore (modify — append data/raw/fire/*.h5) -->
   <!-- gotcha: .gitignore already has `data/raw/` which covers all files under data/raw/fire/. It also has `*.hdf5` but NOT `*.h5`. Tanager files use .h5 extension (HDF-EOS5). The existing `data/raw/` glob already provides coverage, but adding the explicit `*.h5` pattern at top level is safer and self-documenting for files stored elsewhere. -->
   <!-- test: ls data/raw/fire/.gitkeep exists -->
 
-- [ ] Verify: `pip install -e .` succeeds and `import tanager` works
+- [x] Verify: `pip install -e .` succeeds and `import tanager` works
   <!-- verify: manual — run `pip install -e .` in a clean venv, then `python -c "from tanager.config import SENSOR; print(SENSOR.n_bands)"` -->
   <!-- network: requires pip to resolve and download dependencies -->
 
