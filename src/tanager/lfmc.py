@@ -274,59 +274,6 @@ def _sai_map(
     return sai.clip(0.0, 1.0).rename(None)
 
 
-def _upper_hull_continuum(
-    reflectance: np.ndarray,
-    wavelengths: np.ndarray,
-) -> np.ndarray:
-    """Compute the upper convex-hull continuum of a single 1-D spectrum.
-
-    Uses Andrew's monotone-chain algorithm restricted to the upper boundary.
-    A locally-correct alternative to :func:`tanager.spectral.continuum_removal`
-    which interpolates through both upper *and* lower hull vertices and so
-    produces the lower envelope (and a downstream depth of 0) wherever an
-    absorption feature is present. This helper is private to lfmc.py so the
-    correction does not change the behaviour of any other module.
-    """
-    n = len(reflectance)
-    if n == 0:
-        return np.empty(0, dtype=np.float64)
-    if n < 3 or not np.all(np.isfinite(reflectance)):
-        # Not enough points to define a hull, or any NaN — fall back to the
-        # spectrum maximum so the downstream depth is computable but flat.
-        finite = reflectance[np.isfinite(reflectance)]
-        fill = float(finite.max()) if finite.size else 1.0
-        return np.full(n, fill if fill > 0 else 1.0, dtype=np.float64)
-
-    # Operate in wavelength-sorted space, then restore the caller's order.
-    order = np.argsort(wavelengths)
-    wl_s = wavelengths[order].astype(np.float64)
-    r_s = reflectance[order].astype(np.float64)
-
-    upper: list[Tuple[float, float]] = []
-    for i in range(n):
-        while len(upper) >= 2:
-            ox, oy = upper[-2]
-            ax, ay = upper[-1]
-            bx, by = wl_s[i], r_s[i]
-            # Cross product of (a - o) and (b - o); for an upper hull we keep
-            # only right turns (cross < 0). Discard non-strict left turns.
-            cross = (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
-            if cross >= 0.0:
-                upper.pop()
-            else:
-                break
-        upper.append((wl_s[i], r_s[i]))
-
-    hull_x = np.array([p[0] for p in upper], dtype=np.float64)
-    hull_y = np.array([p[1] for p in upper], dtype=np.float64)
-    continuum_sorted = np.interp(wl_s, hull_x, hull_y)
-
-    # Restore caller's wavelength order.
-    inv = np.empty_like(order)
-    inv[order] = np.arange(n)
-    return continuum_sorted[inv]
-
-
 def _continuum_removal_depths(
     scene: Any,
     target_wls: Sequence[float],
@@ -337,32 +284,22 @@ def _continuum_removal_depths(
 
     Returns a DataArray with dims ``(cr_target, y, x)`` where each slice along
     ``cr_target`` is the absorption depth (``1 − R/R_continuum``) at the
-    corresponding wavelength. The continuum hull is fit on
-    ``wavelength_range`` to keep cost bounded; this window contains all of
-    the standard liquid-water absorption features (970, 1200, 1660, 2100 nm).
-    Reflectance is clipped to ``[0, 1]`` before hull fitting to avoid
-    negative ISOFIT shadow values from anchoring the lower hull.
+    corresponding wavelength. The hull is fit on ``wavelength_range`` to keep
+    cost bounded; this window contains all of the standard liquid-water
+    absorption features (970, 1200, 1660, 2100 nm). Reflectance is clipped to
+    ``[0, 1]`` before hull fitting to avoid negative ISOFIT shadow values
+    from interfering with the continuum.
+
+    Delegates the upper-hull math to :func:`tanager.spectral.continuum_removal`
+    so the algorithm lives in one place.
     """
+    from tanager.spectral import continuum_removal as _continuum_removal
+
     refl = _scene_reflectance(scene).clip(0.0, 1.0).astype(np.float64)
-    wl_coord = refl.coords["wavelength"]
-    in_window = (wl_coord >= wavelength_range[0]) & (wl_coord <= wavelength_range[1])
-    refl_window = refl.sel(wavelength=in_window)
-    wl_window = refl_window.coords["wavelength"].values.astype(np.float64)
-
-    def _hull(spectrum: np.ndarray) -> np.ndarray:
-        return _upper_hull_continuum(spectrum, wl_window)
-
-    continuum = xr.apply_ufunc(
-        _hull,
-        refl_window,
-        input_core_dims=[["wavelength"]],
-        output_core_dims=[["wavelength"]],
-        vectorize=True,
-        output_dtypes=[np.float64],
-    ).transpose("wavelength", ...)
-
-    safe_continuum = xr.where(continuum > 0.0, continuum, np.nan)
-    cr = refl_window / safe_continuum
+    cr = _continuum_removal(
+        xr.Dataset({"reflectance": refl}),
+        wavelength_range=wavelength_range,
+    )
 
     depth_slices = []
     for tgt in target_wls:
