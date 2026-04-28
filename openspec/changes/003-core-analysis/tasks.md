@@ -121,7 +121,7 @@
   <!-- test: tests/test_endmembers.py — mock file I/O, verify output schema -->
   <!-- acceptance: returns DataArray with correct dims, spectra filtered by category, NaN spectra excluded -->
 
-- [ ] Implement `load_ecostress_library(categories)` using SPy `EcostressDatabase`; return same schema as USGS loader
+- [x] Implement `load_ecostress_library(categories)` using SPy `EcostressDatabase`; return same schema as USGS loader
   <!-- files: src/tanager/endmembers.py (modify) -->
   <!-- pattern: `from spectral import EcostressDatabase; db = EcostressDatabase()`
        SPy auto-downloads the SQLite database on first call. Filter to VSWIR (0.35-2.5 um = 350-2500nm).
@@ -134,7 +134,7 @@
   <!-- test: tests/test_endmembers.py — mock SPy EcostressDatabase -->
   <!-- acceptance: same DataArray schema as USGS loader; only VSWIR spectra included -->
 
-- [ ] Implement `load_frames_library(data_dir)` parsing ASCII spectral files; categorize as char/ash/pv/npv/soil; return same schema
+- [x] Implement `load_frames_library(data_dir)` parsing ASCII spectral files; categorize as char/ash/pv/npv/soil; return same schema
   <!-- files: src/tanager/endmembers.py (modify) -->
   <!-- gotcha: FRAMES ASCII format is likely tab-delimited or CSV with wavelength + reflectance columns.
        The coder should check actual file format from a sample file. Categorization may need to be
@@ -148,7 +148,7 @@
   <!-- test: tests/test_endmembers.py — mock file I/O with synthetic ASCII data -->
   <!-- acceptance: returns DataArray with char/ash/pv/npv/soil categories; metadata attributes present -->
 
-- [ ] Implement `resample_library(library, target_wavelengths, fwhm=5.5)` using SPy `BandResampler` with Gaussian convolution; clip output to [0, 1]
+- [x] Implement `resample_library(library, target_wavelengths, fwhm=5.5)` using SPy `BandResampler` with Gaussian convolution; clip output to [0, 1]
   <!-- files: src/tanager/endmembers.py (modify) -->
   <!-- pattern: `from spectral import BandResampler; resampler = BandResampler(source_centers, target_centers, fwhm1=source_fwhm, fwhm2=target_fwhm)`
        source_centers = library wavelength coordinate (1nm for USGS/ECOSTRESS).
@@ -169,7 +169,7 @@
   <!-- test: tests/test_endmembers.py — verify output has target_wavelengths length, values in [0, 1] -->
   <!-- acceptance: output DataArray has 426 wavelengths; reflectance clipped to [0, 1]; dims preserved; accepts per-band FWHM array -->
 
-- [ ] Implement `build_hybrid_library(usgs, ecostress, frames, image_derived)` to merge multiple sources into a single library DataArray with source tracking
+- [x] Implement `build_hybrid_library(usgs, ecostress, frames, image_derived)` to merge multiple sources into a single library DataArray with source tracking
   <!-- files: src/tanager/endmembers.py (modify) -->
   <!-- pattern: concatenate along spectrum_id dimension. Add a "source" attribute to each spectrum
        ("usgs_v7", "ecostress", "frames", "image"). All inputs must have same wavelength grid
@@ -179,7 +179,7 @@
   <!-- test: tests/test_endmembers.py — merge two synthetic libraries, verify source tracking -->
   <!-- acceptance: merged DataArray with source attribute; wavelength alignment enforced; None inputs handled -->
 
-- [ ] Verify: Load USGS library, resample to Tanager bands, confirm output has 426 wavelengths and reflectance in [0, 1]
+- [x] Verify: Load USGS library, resample to Tanager bands, confirm output has 426 wavelengths and reflectance in [0, 1]
   <!-- verify: requires USGS v7 ASCII data files in data_dir. Can use mocked data for unit test, real data for integration test. -->
   <!-- network: ASCII data must be pre-downloaded from ScienceBase (DOI:10.5066/F7RR1WDJ) -->
   <!-- acceptance: resampled output has exactly 426 bands; all values in [0, 1] -->
