@@ -110,27 +110,27 @@
 <!-- execution_mode: sequential (within track) -->
 <!-- network: none — all operations on in-memory xarray datasets -->
 
-- [ ] Create `src/tanager/spectral.py` with `select_bands(dataset, min_wl, max_wl)` for wavelength range selection
+- [x] Create `src/tanager/spectral.py` with `select_bands(dataset, min_wl, max_wl)` for wavelength range selection
   <!-- files: src/tanager/spectral.py (new) -->
   <!-- pattern: use xarray .sel(wavelength=slice(min_wl, max_wl)) or boolean indexing on wavelength coordinate. Return a new xarray.Dataset (do not modify in place). -->
 
-- [ ] Add `select_bands(dataset, wavelengths=[...])` for nearest-neighbor band matching
+- [x] Add `select_bands(dataset, wavelengths=[...])` for nearest-neighbor band matching
   <!-- files: src/tanager/spectral.py (modify) -->
   <!-- pattern: use xarray .sel(wavelength=wavelengths, method="nearest"). Return both the dataset and the actual matched wavelengths so the caller knows which bands were selected. -->
 
-- [ ] Add `ValueError` when no bands match the specified range
+- [x] Add `ValueError` when no bands match the specified range
   <!-- files: src/tanager/spectral.py (modify) -->
 
-- [ ] Add `mask_bad_bands(dataset)` removing sensor edge (<400nm), water vapor (1340-1480nm, 1790-1960nm), and CO2/H2O (2350-2500nm) bands, with logging of excluded/remaining band count
+- [x] Add `mask_bad_bands(dataset)` removing sensor edge (<400nm), water vapor (1340-1480nm, 1790-1960nm), and CO2/H2O (2350-2500nm) bands, with logging of excluded/remaining band count
   <!-- files: src/tanager/spectral.py (modify) -->
   <!-- pattern: import BAD_BAND_RANGES from tanager.config. Build boolean mask over wavelength coordinate. Use Python logging (not print) for band count messages. -->
   <!-- gotcha: BAD_BAND_RANGES default is [(0, 400), (1340, 1480), (1790, 1960), (2350, 2500)]. After masking 426 bands, expect ~330-346 remaining. If result is outside this range, log a warning. -->
 
-- [ ] Add `mask_bad_bands(dataset, zones=[...])` for custom exclusion zones
+- [x] Add `mask_bad_bands(dataset, zones=[...])` for custom exclusion zones
   <!-- files: src/tanager/spectral.py (modify) -->
   <!-- gotcha: when zones parameter is provided, it REPLACES the defaults entirely (not additive). This matches the spec scenario "overriding defaults". -->
 
-- [ ] Verify: `mask_bad_bands()` on a 426-band dataset returns ~330-346 bands, wavelength coordinate is contiguous
+- [x] Verify: `mask_bad_bands()` on a 426-band dataset returns ~330-346 bands, wavelength coordinate is contiguous
   <!-- verify: can be tested with synthetic data from conftest.py fixture. Does not require real data. -->
   <!-- network: none -->
 
