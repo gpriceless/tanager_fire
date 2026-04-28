@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pytest
 import xarray as xr
 
+from tanager.config import BAD_BAND_RANGES
 from tanager.spectral import (
     continuum_removal,
     dnbr,
@@ -189,7 +192,9 @@ class TestMaskBadBandsDefaults:
     def test_removes_water_vapour_band2(self, tanager_ds: xr.Dataset) -> None:
         result = mask_bad_bands(tanager_ds)
         wl = result.coords["wavelength"].values
-        assert not np.any((wl >= 1790) & (wl <= 1960)), "Water vapour zone 1790-1960 not removed"
+        # LGT-301: zone widened to 1780-1970 to align with sensor good_wavelengths
+        # which flags ~1782.58-1967.21 nm.
+        assert not np.any((wl >= 1780) & (wl <= 1970)), "Water vapour zone 1780-1970 not removed"
 
     def test_removes_co2_h2o_bands(self, tanager_ds: xr.Dataset) -> None:
         result = mask_bad_bands(tanager_ds)
@@ -243,6 +248,296 @@ class TestMaskBadBandsCustomZones:
         result = mask_bad_bands(ds, zones=[(1000, 1100), (1500, 1600)])
         wl_out = result.coords["wavelength"].values
         assert np.all(np.diff(wl_out) > 0)
+
+
+# ---------------------------------------------------------------------------
+# LGT-301 — widened water-vapour zone and good_wavelengths integration
+# ---------------------------------------------------------------------------
+
+
+class TestBadBandRangesAlignment:
+    """Verify BAD_BAND_RANGES covers the sensor-flagged ranges (LGT-301).
+
+    The sensor flags 58 bands as bad: 1342.41-1437.55 nm and 1782.58-1967.21 nm.
+    BAD_BAND_RANGES is intentionally a small superset so wavelength-only
+    masking remains correct for files that lack good_wavelengths metadata.
+    """
+
+    def test_water_vapour_band1_covers_sensor_range(self) -> None:
+        zones = [z for z in BAD_BAND_RANGES if z[0] >= 1300 and z[1] <= 1500]
+        assert len(zones) == 1
+        low, high = zones[0]
+        assert low <= 1342.41 and high >= 1437.55
+
+    def test_water_vapour_band2_covers_sensor_range(self) -> None:
+        # Pre-fix the zone was (1790, 1960), missing 1782-1790 and 1960-1967.
+        zones = [z for z in BAD_BAND_RANGES if z[0] >= 1700 and z[1] <= 2000]
+        assert len(zones) == 1
+        low, high = zones[0]
+        assert low <= 1782.58, f"Band 2 lower bound {low} misses 1782.58 nm"
+        assert high >= 1967.21, f"Band 2 upper bound {high} misses 1967.21 nm"
+
+
+class TestMaskBadBandsGoodWavelengthsCoord:
+    """When the dataset carries a ``good_wavelengths`` coord, it is honoured."""
+
+    def _ds_with_good(self, n: int = 426) -> xr.Dataset:
+        wavelengths = np.linspace(380, 2500, n)
+        rng = np.random.default_rng(0)
+        data = rng.random((n, 3, 3)).astype(np.float32)
+        good = np.ones(n, dtype=np.uint8)
+        # Sensor flags two bands inside the kept range as bad.
+        target_idx = [int(np.argmin(np.abs(wavelengths - 700.0))),
+                      int(np.argmin(np.abs(wavelengths - 800.0)))]
+        good[target_idx] = 0
+        return xr.Dataset(
+            {"reflectance": (["wavelength", "y", "x"], data)},
+            coords={
+                "wavelength": wavelengths,
+                "good_wavelengths": (("wavelength",), good),
+            },
+        )
+
+    def test_sensor_flagged_bands_excluded(self) -> None:
+        ds = self._ds_with_good()
+        result = mask_bad_bands(ds)
+        wl_out = result.coords["wavelength"].values
+        # Find the input wavelengths sensor-marked bad and assert they are gone.
+        bad = ds.coords["wavelength"].values[
+            ds.coords["good_wavelengths"].values == 0
+        ]
+        for w in bad:
+            assert not np.any(np.isclose(wl_out, w)), (
+                f"Sensor-flagged bad band {w} nm not removed"
+            )
+
+    def test_default_zones_still_applied(self) -> None:
+        ds = self._ds_with_good()
+        result = mask_bad_bands(ds)
+        wl_out = result.coords["wavelength"].values
+        # The default zones must still be excluded even when sensor mask is also active.
+        assert not np.any(wl_out <= 400)
+        assert not np.any((wl_out >= 1340) & (wl_out <= 1480))
+        assert not np.any((wl_out >= 1780) & (wl_out <= 1970))
+        assert not np.any((wl_out >= 2350) & (wl_out <= 2500))
+
+class TestMaskBadBandsHdf5Filepath:
+    """Optional ``hdf5_filepath`` parameter reads good_wavelengths from disk."""
+
+    def _make_synthetic_hdf5(
+        self,
+        tmp_path,
+        good_wavelengths: np.ndarray,
+        wavelengths: np.ndarray,
+    ) -> str:
+        import h5py
+
+        path = tmp_path / "synth_ortho_sr.h5"
+        with h5py.File(path, "w") as h5:
+            grp = h5.create_group("HDFEOS/GRIDS/HYP/Data Fields")
+            sr = grp.create_dataset(
+                "surface_reflectance",
+                shape=(len(wavelengths), 2, 2),
+                dtype="float32",
+            )
+            sr.attrs["wavelengths"] = wavelengths.astype(np.float64)
+            sr.attrs["good_wavelengths"] = good_wavelengths.astype(np.uint8)
+        return str(path)
+
+    def test_reads_good_wavelengths_from_file(self, tmp_path) -> None:
+        wavelengths = np.linspace(380, 2500, 426)
+        good = np.ones(426, dtype=np.uint8)
+        target_idx = int(np.argmin(np.abs(wavelengths - 750.0)))
+        good[target_idx] = 0
+        h5_path = self._make_synthetic_hdf5(tmp_path, good, wavelengths)
+
+        ds = xr.Dataset(
+            {"reflectance": (["wavelength", "y", "x"],
+                             np.ones((426, 2, 2), dtype=np.float32))},
+            coords={"wavelength": wavelengths},
+        )
+        result = mask_bad_bands(ds, hdf5_filepath=h5_path)
+        wl_out = result.coords["wavelength"].values
+        flagged = wavelengths[target_idx]
+        assert not np.any(np.isclose(wl_out, flagged)), (
+            f"Sensor-flagged band {flagged} not removed when read from HDF5"
+        )
+
+    def test_hdf5_overrides_dataset_coord(self, tmp_path) -> None:
+        """``hdf5_filepath`` takes precedence over the dataset's own coord."""
+        wavelengths = np.linspace(380, 2500, 426)
+        # Dataset coord flags 600 nm as bad.
+        ds_good = np.ones(426, dtype=np.uint8)
+        ds_idx = int(np.argmin(np.abs(wavelengths - 600.0)))
+        ds_good[ds_idx] = 0
+        # HDF5 flag flags 700 nm as bad.
+        file_good = np.ones(426, dtype=np.uint8)
+        file_idx = int(np.argmin(np.abs(wavelengths - 700.0)))
+        file_good[file_idx] = 0
+        h5_path = self._make_synthetic_hdf5(tmp_path, file_good, wavelengths)
+
+        ds = xr.Dataset(
+            {"reflectance": (["wavelength", "y", "x"],
+                             np.ones((426, 2, 2), dtype=np.float32))},
+            coords={
+                "wavelength": wavelengths,
+                "good_wavelengths": (("wavelength",), ds_good),
+            },
+        )
+        result = mask_bad_bands(ds, hdf5_filepath=h5_path)
+        wl_out = result.coords["wavelength"].values
+        # File-flagged band must be removed.
+        assert not np.any(np.isclose(wl_out, wavelengths[file_idx]))
+        # Dataset-coord-flagged band must remain (file overrides coord).
+        assert np.any(np.isclose(wl_out, wavelengths[ds_idx]))
+
+    def test_missing_file_raises_value_error(self, tmp_path) -> None:
+        wavelengths = np.linspace(380, 2500, 10)
+        ds = xr.Dataset(
+            {"reflectance": (["wavelength", "y", "x"],
+                             np.zeros((10, 2, 2), dtype=np.float32))},
+            coords={"wavelength": wavelengths},
+        )
+        with pytest.raises(ValueError, match="Cannot read"):
+            mask_bad_bands(
+                ds, hdf5_filepath=str(tmp_path / "nonexistent.h5")
+            )
+
+    def test_hdf5_length_mismatch_raises(self, tmp_path) -> None:
+        wavelengths_file = np.linspace(380, 2500, 100)
+        good = np.ones(100, dtype=np.uint8)
+        h5_path = self._make_synthetic_hdf5(tmp_path, good, wavelengths_file)
+
+        # Dataset has different length.
+        wavelengths_ds = np.linspace(380, 2500, 50)
+        ds = xr.Dataset(
+            {"reflectance": (["wavelength", "y", "x"],
+                             np.zeros((50, 2, 2), dtype=np.float32))},
+            coords={"wavelength": wavelengths_ds},
+        )
+        with pytest.raises(ValueError, match="does not match dataset"):
+            mask_bad_bands(ds, hdf5_filepath=h5_path)
+
+
+# ---------------------------------------------------------------------------
+# LGT-301 — Real-data integration: verify sensor alignment against HDF5 files
+# ---------------------------------------------------------------------------
+
+
+_REAL_FIRE_DIR = "data/raw/fire"
+_REAL_FIRE_SCENES = [
+    "20241215_185916_33_4001_ortho_sr_hdf5.h5",
+    "20250123_185507_64_4001_ortho_sr_hdf5.h5",
+    "20250407_192235_24_4001_ortho_sr_hdf5.h5",
+]
+
+
+def _real_fire_scene_paths() -> list[str]:
+    base = os.path.join(os.getcwd(), _REAL_FIRE_DIR)
+    return [
+        os.path.join(base, name) for name in _REAL_FIRE_SCENES
+        if os.path.exists(os.path.join(base, name))
+    ]
+
+
+@pytest.mark.skipif(
+    not _real_fire_scene_paths(),
+    reason="Real ortho SR HDF5 scenes not present in data/raw/fire/",
+)
+class TestMaskBadBandsRealOrthoHDF5:
+    """LGT-301: mask_bad_bands aligns with sensor metadata on real scenes.
+
+    Validates that the widened BAD_BAND_RANGES plus the good_wavelengths
+    integration produces the same set of kept bands as the sensor's own
+    flag array would on its own (modulo the 4 wavelength-zone exclusions
+    that are also intentional defaults).
+    """
+
+    def _read_sensor_metadata(self, path: str):
+        import h5py
+
+        with h5py.File(path, "r") as h5:
+            sr = h5["HDFEOS/GRIDS/HYP/Data Fields/surface_reflectance"]
+            wavelengths = np.asarray(sr.attrs["wavelengths"], dtype=np.float64)
+            good = np.asarray(sr.attrs["good_wavelengths"], dtype=np.uint8).astype(bool)
+            fwhm = np.asarray(sr.attrs["fwhm"], dtype=np.float64)
+        return wavelengths, good, fwhm
+
+    def _build_dataset(self, wavelengths: np.ndarray) -> xr.Dataset:
+        return xr.Dataset(
+            {"reflectance": (["wavelength", "y", "x"],
+                             np.zeros((len(wavelengths), 2, 2), dtype=np.float32))},
+            coords={"wavelength": wavelengths},
+        )
+
+    def test_hdf5_path_matches_sensor_flags(self) -> None:
+        """Bands kept after masking must include no sensor-flagged-bad bands."""
+        for path in _real_fire_scene_paths():
+            wavelengths, good, _ = self._read_sensor_metadata(path)
+            ds = self._build_dataset(wavelengths)
+
+            result = mask_bad_bands(ds, hdf5_filepath=path)
+            kept = result.coords["wavelength"].values
+
+            sensor_bad_wl = wavelengths[~good]
+            for w in sensor_bad_wl:
+                assert not np.any(np.isclose(kept, w)), (
+                    f"{path}: sensor-flagged bad band {w:.2f} nm survived masking"
+                )
+
+    def test_widened_zone_covers_all_sensor_bad_bands_in_range(self) -> None:
+        """Wavelength-only masking (no good_wavelengths) excludes all sensor-bad bands.
+
+        Guards against regression: the previous (1790, 1960) range left the
+        bands at 1782-1790 nm and 1960-1967 nm in the kept set even though
+        the sensor flagged them as bad.
+        """
+        for path in _real_fire_scene_paths():
+            wavelengths, good, _ = self._read_sensor_metadata(path)
+            ds = self._build_dataset(wavelengths)
+
+            # Use only BAD_BAND_RANGES (no hdf5_filepath, no coord) to verify
+            # the wavelength zones are wide enough on their own.
+            result = mask_bad_bands(ds)
+            kept = result.coords["wavelength"].values
+
+            sensor_bad_in_swir = wavelengths[(~good) & (wavelengths >= 1700) & (wavelengths <= 2000)]
+            assert sensor_bad_in_swir.size > 0, (
+                f"{path}: expected sensor-flagged bad bands in 1700-2000 nm"
+            )
+            for w in sensor_bad_in_swir:
+                assert not np.any(np.isclose(kept, w)), (
+                    f"{path}: SWIR band {w:.2f} nm survived BAD_BAND_RANGES masking "
+                    f"(LGT-301 regression — water-vapour zone too narrow)"
+                )
+
+    def test_real_scene_yields_expected_band_count(self) -> None:
+        """Real Tanager scenes should retain ~330-346 bands after full masking."""
+        for path in _real_fire_scene_paths():
+            wavelengths, _, _ = self._read_sensor_metadata(path)
+            ds = self._build_dataset(wavelengths)
+
+            result = mask_bad_bands(ds, hdf5_filepath=path)
+            n = result.sizes["wavelength"]
+            assert 320 <= n <= 360, (
+                f"{path}: unexpected band count {n} after masking; "
+                f"expected ~330-346 for real Tanager data"
+            )
+
+    def test_per_band_fwhm_varies(self) -> None:
+        """Sanity check: per-band FWHM is non-constant across 5.20-6.81 nm.
+
+        The board directive notes FWHM varies per band rather than the
+        SENSOR.spectral_resolution_nm constant (5 nm). This test pins that
+        observation so any future change to the loader/spec catches it.
+        """
+        for path in _real_fire_scene_paths():
+            _, _, fwhm = self._read_sensor_metadata(path)
+            assert fwhm.shape == (426,)
+            assert fwhm.min() >= 5.0 and fwhm.max() <= 7.0
+            assert fwhm.std() > 0.1, (
+                f"{path}: FWHM appears constant — expected per-band variation"
+            )
 
 
 # ---------------------------------------------------------------------------

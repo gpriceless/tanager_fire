@@ -46,8 +46,8 @@ SENSOR = SimpleNamespace(
 
 BAD_BAND_RANGES: list[tuple[int, int]] = [
     (0, 400),       # sensor edge / UV — below reliable detector response
-    (1340, 1480),   # water vapour absorption band 1
-    (1790, 1960),   # water vapour absorption band 2
+    (1340, 1480),   # water vapour absorption band 1 (sensor flags 1342.41–1437.55 nm)
+    (1780, 1970),   # water vapour absorption band 2 (sensor flags 1782.58–1967.21 nm)
     (2350, 2500),   # CO2 / H2O absorption at long-wave sensor edge
 ]
 

@@ -9,7 +9,8 @@ operations return new objects; the input is never modified in place.
 from __future__ import annotations
 
 import logging
-from typing import Optional, Sequence, Tuple
+import os
+from typing import Optional, Sequence, Tuple, Union
 
 import numpy as np
 import xarray as xr
@@ -21,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 _EXPECTED_GOOD_BAND_MIN = 320
 _EXPECTED_GOOD_BAND_MAX = 360
+
+# HDF5 path used by Tanager ortho_sr products; mirrors tanager.io._ORTHO_SR_DATASET.
+_ORTHO_SR_DATASET_PATH = "HDFEOS/GRIDS/HYP/Data Fields/surface_reflectance"
 
 
 def select_bands(
@@ -124,10 +128,65 @@ def _select_by_nearest(
     return subset, matched
 
 
+def _read_good_wavelengths_from_hdf5(
+    hdf5_filepath: Union[str, "os.PathLike[str]"],
+) -> np.ndarray:
+    """Read the per-band ``good_wavelengths`` flag array from a Tanager HDF5 file.
+
+    The Tanager ``ortho_sr`` HDF5 product stores a uint8 array of length 426
+    on the ``surface_reflectance`` dataset's ``good_wavelengths`` attribute,
+    where ``1`` marks a sensor-validated band and ``0`` marks a band the
+    sensor flags as bad (predominantly water-vapour absorption regions:
+    ~1342–1437 nm and ~1782–1967 nm).
+
+    Args:
+        hdf5_filepath: Path to a Tanager ``.h5`` ortho_sr file.
+
+    Returns:
+        Boolean array of shape ``(n_bands,)`` where ``True`` indicates a
+        sensor-good band.
+
+    Raises:
+        ValueError: If the file cannot be opened, the surface_reflectance
+            dataset is missing, or the ``good_wavelengths`` attribute is
+            absent.
+    """
+    try:
+        import h5py  # heavy dep — imported lazily
+    except ImportError as exc:  # pragma: no cover - environment-dependent
+        raise ValueError(
+            "h5py is required to read good_wavelengths from HDF5"
+        ) from exc
+
+    path_str = os.fspath(hdf5_filepath)
+    try:
+        h5 = h5py.File(path_str, "r")
+    except OSError as exc:
+        raise ValueError(
+            f"Cannot read Tanager HDF5 file {path_str!r}: {exc}"
+        ) from exc
+
+    with h5:
+        if _ORTHO_SR_DATASET_PATH not in h5:
+            raise ValueError(
+                f"File {path_str!r} is missing surface_reflectance dataset "
+                f"at {_ORTHO_SR_DATASET_PATH!r}"
+            )
+        sr_attrs = dict(h5[_ORTHO_SR_DATASET_PATH].attrs)
+        if "good_wavelengths" not in sr_attrs:
+            raise ValueError(
+                f"surface_reflectance in {path_str!r} is missing the "
+                f"'good_wavelengths' attribute"
+            )
+        # Sensor convention: 1 = good, 0 = bad.
+        return np.asarray(sr_attrs["good_wavelengths"]).astype(bool)
+
+
 def mask_bad_bands(
     dataset: xr.Dataset,
     *,
     zones: Optional[list[tuple[float, float]]] = None,
+    hdf5_filepath: Optional[Union[str, "os.PathLike[str]"]] = None,
 ) -> xr.Dataset:
     """Remove bands that fall within known atmospheric-absorption and sensor-edge ranges.
 
@@ -136,11 +195,21 @@ def mask_bad_bands(
 
     * 0–400 nm   — sensor edge / below reliable detector response
     * 1340–1480 nm — water vapour absorption band 1
-    * 1790–1960 nm — water vapour absorption band 2
+    * 1780–1970 nm — water vapour absorption band 2
     * 2350–2500 nm — CO₂ / H₂O absorption at long-wave sensor edge
 
     When ``zones`` is provided it **replaces** the defaults entirely; the
     caller is responsible for specifying all exclusion zones they want applied.
+
+    The function also honours the sensor-provided ``good_wavelengths`` flag
+    when available.  A band is considered bad if it falls inside any
+    exclusion zone OR the sensor has flagged it (``good_wavelengths`` value of
+    ``False``/``0``).  The flag is sourced from, in priority order:
+
+    1. ``hdf5_filepath`` (when provided) — read directly from the
+       ``surface_reflectance.good_wavelengths`` attribute of the HDF5 file.
+    2. The dataset's own ``good_wavelengths`` coordinate, populated by
+       ``tanager.io.load_ortho_scene`` for ortho_sr products.
 
     Args:
         dataset: xarray Dataset with a ``wavelength`` coordinate (units: nm).
@@ -148,10 +217,18 @@ def mask_bad_bands(
             centre wavelength falls within any zone (inclusive on both ends) is
             excluded.  When provided this argument replaces the default
             ``BAD_BAND_RANGES`` entirely.
+        hdf5_filepath: Optional path to the source Tanager HDF5 file.  When
+            provided the ``good_wavelengths`` attribute is read from the file
+            and OR-combined with the wavelength-zone mask.  Length must match
+            the dataset's ``wavelength`` dimension.
 
     Returns:
         A new Dataset with bad bands removed.  The ``wavelength`` coordinate
         is a contiguous sorted sub-array of the input coordinate.
+
+    Raises:
+        ValueError: If ``hdf5_filepath`` cannot be read or its
+            ``good_wavelengths`` length does not match the dataset.
 
     Warns:
         Logs a WARNING if the remaining band count is outside the expected
@@ -167,6 +244,30 @@ def mask_bad_bands(
     for low, high in exclusion_zones:
         good_mask &= ~((wl.values >= low) & (wl.values <= high))
 
+    sensor_good: Optional[np.ndarray] = None
+    sensor_source: Optional[str] = None
+    if hdf5_filepath is not None:
+        sensor_good = _read_good_wavelengths_from_hdf5(hdf5_filepath)
+        sensor_source = f"hdf5_filepath={os.fspath(hdf5_filepath)!r}"
+    elif "good_wavelengths" in dataset.coords:
+        sensor_good = np.asarray(dataset.coords["good_wavelengths"].values).astype(bool)
+        sensor_source = "dataset.coords['good_wavelengths']"
+
+    if sensor_good is not None:
+        if sensor_good.shape != (n_input,):
+            raise ValueError(
+                f"good_wavelengths length {sensor_good.shape[0]} does not match "
+                f"dataset wavelength dimension {n_input} (source: {sensor_source})"
+            )
+        sensor_excluded = int(np.sum(good_mask & ~sensor_good))
+        good_mask &= sensor_good
+        logger.debug(
+            "mask_bad_bands: applied sensor good_wavelengths from %s "
+            "(%d bands flagged bad by sensor not already excluded by zones)",
+            sensor_source,
+            sensor_excluded,
+        )
+
     n_excluded = int(np.sum(~good_mask))
     n_remaining = int(np.sum(good_mask))
 
@@ -177,7 +278,7 @@ def mask_bad_bands(
         n_input,
     )
 
-    if zones is None and n_input == 426:
+    if zones is None and sensor_good is None and n_input == 426:
         if not (_EXPECTED_GOOD_BAND_MIN <= n_remaining <= _EXPECTED_GOOD_BAND_MAX):
             logger.warning(
                 "mask_bad_bands: expected ~330–346 good bands (real data) after "
