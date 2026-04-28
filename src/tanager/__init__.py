@@ -41,6 +41,22 @@ _LAZY_EXPORTS: dict[str, str] = {
     "cloud_mask": "masks",
     "water_mask": "masks",
     "apply_masks": "masks",
+    # endmembers -----------------------------------------------------------
+    "load_usgs_library": "endmembers",
+    "load_ecostress_library": "endmembers",
+    "load_frames_library": "endmembers",
+    "resample_library": "endmembers",
+    "build_hybrid_library": "endmembers",
+    "select_endmembers_incob": "endmembers",
+    "prune_endmembers_ear_masa": "endmembers",
+    "extract_image_endmembers": "endmembers",
+    "build_fire_library": "endmembers",
+    # unmixing -------------------------------------------------------------
+    "run_mesma": "unmixing",
+    "select_bands_uszu": "unmixing",
+    "normalize_fractions": "unmixing",
+    "plot_fraction_maps": "unmixing",
+    "plot_rgb_composite": "unmixing",
 }
 
 

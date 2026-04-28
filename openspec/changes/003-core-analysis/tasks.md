@@ -272,7 +272,7 @@ Verify: endmembers module imports cleanly, library loading works with test data,
 <!-- execution_mode: sequential -->
 <!-- network: none — all operations on in-memory data -->
 
-- [ ] Create `src/tanager/unmixing.py` with module docstring, logging, and engine detection (mesma vs HySUPP)
+- [x] Create `src/tanager/unmixing.py` with module docstring, logging, and engine detection (mesma vs HySUPP)
   <!-- files: src/tanager/unmixing.py (new) -->
   <!-- pattern: follow src/tanager/spectral.py module structure. Add engine detection at module level:
        ```python
@@ -288,7 +288,7 @@ Verify: endmembers module imports cleanly, library loading works with test data,
        unmixing.py MUST NOT import from severity.py, lfmc.py, or validation.py. -->
   <!-- acceptance: module imports cleanly; engine detection works for both mesma-present and mesma-absent cases -->
 
-- [ ] Implement `select_bands_uszu(scene, library, n_bands=40)` for Uniform SZU band selection to identify most discriminatory bands
+- [x] Implement `select_bands_uszu(scene, library, n_bands=40)` for Uniform SZU band selection to identify most discriminatory bands
   <!-- files: src/tanager/unmixing.py (modify) -->
   <!-- gotcha: uSZU (Uniform Spectral Zone Unmixing) selects bands that maximize class separability.
        The algorithm: (1) divide spectrum into n_bands zones, (2) within each zone, select the band
@@ -302,7 +302,7 @@ Verify: endmembers module imports cleanly, library loading works with test data,
   <!-- test: tests/test_unmixing.py — verify output has exactly n_bands wavelengths -->
   <!-- acceptance: output Dataset has n_bands wavelengths; selected bands span VNIR-SWIR range -->
 
-- [ ] Implement `run_mesma(scene, library, constraints, bands)` wrapping mesma v1.0.8 API; handle pixel-by-pixel unmixing with constraint filtering
+- [x] Implement `run_mesma(scene, library, constraints, bands)` wrapping mesma v1.0.8 API; handle pixel-by-pixel unmixing with constraint filtering
   <!-- files: src/tanager/unmixing.py (modify) -->
   <!-- gotcha: mesma v1.0.8 API — CONFIRMED WORKING (Python 3.12.3 + numpy 2.4.4).
        Full workflow:
@@ -333,7 +333,7 @@ Verify: endmembers module imports cleanly, library loading works with test data,
   <!-- test: tests/test_unmixing.py — synthetic scene with known pure pixels, verify fractions -->
   <!-- acceptance: fractions sum to 1.0; known-pure pixels have fraction ~1.0 for matching endmember; RMSE stored -->
 
-- [ ] Implement `_run_mesma_hysup_fallback(scene, library, constraints)` using HySUPP FCLS as fallback; same output schema
+- [x] Implement `_run_mesma_hysup_fallback(scene, library, constraints)` using HySUPP FCLS as fallback; same output schema
   <!-- files: src/tanager/unmixing.py (modify) -->
   <!-- gotcha: HySUPP implements Fully Constrained Least Squares (FCLS). It's not multi-endmember
        like MESMA — it uses ALL endmembers simultaneously (one model per pixel, not combinatorial).
@@ -347,7 +347,7 @@ Verify: endmembers module imports cleanly, library loading works with test data,
   <!-- test: tests/test_unmixing.py — test fallback produces valid output when mesma unavailable -->
   <!-- acceptance: same output schema as run_mesma; unmixing_engine metadata set correctly -->
 
-- [ ] Implement RMSE constraint filtering within `run_mesma`: max_rmse, min_fraction, max_fraction; reject invalid models and mark pixels NaN
+- [x] Implement RMSE constraint filtering within `run_mesma`: max_rmse, min_fraction, max_fraction; reject invalid models and mark pixels NaN
   <!-- files: src/tanager/unmixing.py (modify) -->
   <!-- pattern: post-processing step applied to MESMA output.
        For each pixel: if rmse > max_rmse, set all fractions to NaN.
@@ -357,7 +357,7 @@ Verify: endmembers module imports cleanly, library loading works with test data,
   <!-- test: tests/test_unmixing.py — verify constraint filtering rejects bad fits -->
   <!-- acceptance: pixels with RMSE > threshold have NaN fractions; fractions outside bounds rejected -->
 
-- [ ] Implement `normalize_fractions(fractions, remove_shade=True)` — remove shade, rescale remaining to sum=1.0
+- [x] Implement `normalize_fractions(fractions, remove_shade=True)` — remove shade, rescale remaining to sum=1.0
   <!-- files: src/tanager/unmixing.py (modify) -->
   <!-- pattern: if remove_shade: drop the "shade" variable from Dataset, then rescale remaining
        fractions so each pixel sums to 1.0. Rescaling: new_frac = old_frac / (1 - shade_frac).
@@ -366,7 +366,7 @@ Verify: endmembers module imports cleanly, library loading works with test data,
   <!-- test: tests/test_unmixing.py — verify shade removed, remaining sum to 1.0 -->
   <!-- acceptance: no shade variable in output; non-shade fractions sum to 1.0 per pixel -->
 
-- [ ] Output format: xarray Dataset with variables (char, pv, npv, soil, shade, rmse) and dims (y, x)
+- [x] Output format: xarray Dataset with variables (char, pv, npv, soil, shade, rmse) and dims (y, x)
   <!-- files: src/tanager/unmixing.py (modify — ensure output format is consistent across all paths) -->
   <!-- pattern: this is a format validation task, not a new function. Ensure run_mesma and
        _run_mesma_hysup_fallback both produce identically-structured output.
@@ -376,7 +376,7 @@ Verify: endmembers module imports cleanly, library loading works with test data,
   <!-- test: tests/test_unmixing.py — validate output schema from both backends -->
   <!-- acceptance: both backends produce identical output schema; validation function catches malformed output -->
 
-- [ ] Verify: Run MESMA on synthetic scene with known endmembers; confirm fractions sum to 1.0 and known-pure pixels map correctly
+- [x] Verify: Run MESMA on synthetic scene with known endmembers; confirm fractions sum to 1.0 and known-pure pixels map correctly
   <!-- verify: use synthetic_tanager_dataset_with_signatures fixture from conftest.py.
        Create a small endmember library from the known signatures (vegetation, char, soil).
        Run unmixing. Verify: vegetation pixels → high pv fraction, char pixels → high char fraction, etc. -->
@@ -386,7 +386,7 @@ Verify: endmembers module imports cleanly, library loading works with test data,
 <!-- execution_mode: sequential -->
 <!-- network: none -->
 
-- [ ] Implement `plot_fraction_maps(fractions, figsize, cmap)` — matplotlib multi-panel figure showing each fraction as a spatial map
+- [x] Implement `plot_fraction_maps(fractions, figsize, cmap)` — matplotlib multi-panel figure showing each fraction as a spatial map
   <!-- files: src/tanager/unmixing.py (modify) -->
   <!-- pattern: use matplotlib.pyplot.subplots(1, n_fractions) to create a row of panels.
        Each panel: imshow of one fraction variable (char, pv, npv, soil).
@@ -397,14 +397,14 @@ Verify: endmembers module imports cleanly, library loading works with test data,
   <!-- test: tests/test_unmixing.py — verify function returns matplotlib Figure without error -->
   <!-- acceptance: produces Figure with correct number of panels; no errors on test data -->
 
-- [ ] Implement `plot_rgb_composite(fractions, r="char", g="pv", b="npv")` — false-color composite from fraction maps
+- [x] Implement `plot_rgb_composite(fractions, r="char", g="pv", b="npv")` — false-color composite from fraction maps
   <!-- files: src/tanager/unmixing.py (modify) -->
   <!-- pattern: stack three fraction arrays as RGB channels. Normalize each to [0, 1] for display.
        Use matplotlib imshow with the stacked array. Add title and legend explaining the color mapping. -->
   <!-- test: tests/test_unmixing.py — verify function returns matplotlib Figure -->
   <!-- acceptance: produces RGB composite Figure; colors correspond to fraction assignments -->
 
-- [ ] Verify: Plotting functions produce figures without errors on test data
+- [x] Verify: Plotting functions produce figures without errors on test data
   <!-- verify: run on synthetic unmixing output -->
   <!-- acceptance: no exceptions; figures render correctly -->
 
