@@ -1,4 +1,4 @@
-"""Tests for tanager.spectral band selection and bad-band masking."""
+"""Tests for tanager.spectral band selection, masking, and spectral indices."""
 
 from __future__ import annotations
 
@@ -6,7 +6,15 @@ import numpy as np
 import pytest
 import xarray as xr
 
-from tanager.spectral import mask_bad_bands, select_bands
+from tanager.spectral import (
+    continuum_removal,
+    dnbr,
+    mask_bad_bands,
+    nbr,
+    ndvi,
+    ndwi,
+    select_bands,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -258,3 +266,301 @@ def test_task6_426_band_verification() -> None:
     # Accept ~330-346 from spec; linspace gives 328, so use 310-360 to cover both
     assert 310 <= n_bands <= 360, f"Band count {n_bands} outside expected range"
     assert np.all(np.diff(wl_vals) > 0), "Wavelength coordinate is not sorted"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for index tests
+# ---------------------------------------------------------------------------
+
+
+def make_tanager_ds(
+    nir_val: float = 0.6,
+    swir2_val: float = 0.2,
+    red_val: float = 0.1,
+    green_val: float = 0.3,
+    shape: tuple[int, int] = (4, 4),
+) -> xr.Dataset:
+    """Build a synthetic Tanager-1 dataset with controlled band values.
+
+    Sets NIR (860 nm), SWIR2 (2200 nm), Red (660 nm), and Green (560 nm) to
+    uniform constant values so indices can be analytically verified.
+    """
+    wavelengths = np.linspace(380, 2500, 426)
+    n_wl = len(wavelengths)
+    ny, nx = shape
+
+    data = np.zeros((n_wl, ny, nx), dtype=np.float32)
+
+    # Assign constant reflectance to the bands nearest to each target
+    def _nearest_idx(wl_target: float) -> int:
+        return int(np.argmin(np.abs(wavelengths - wl_target)))
+
+    data[_nearest_idx(860), :, :] = nir_val
+    data[_nearest_idx(2200), :, :] = swir2_val
+    data[_nearest_idx(660), :, :] = red_val
+    data[_nearest_idx(560), :, :] = green_val
+
+    return xr.Dataset(
+        {"reflectance": (["wavelength", "y", "x"], data)},
+        coords={"wavelength": wavelengths},
+    )
+
+
+# ---------------------------------------------------------------------------
+# NBR
+# ---------------------------------------------------------------------------
+
+
+class TestNBR:
+    def test_returns_dataarray(self) -> None:
+        ds = make_tanager_ds()
+        result = nbr(ds)
+        assert isinstance(result, xr.DataArray)
+
+    def test_correct_formula(self) -> None:
+        # NBR = (NIR - SWIR2) / (NIR + SWIR2) = (0.6 - 0.2) / (0.6 + 0.2) = 0.5
+        ds = make_tanager_ds(nir_val=0.6, swir2_val=0.2)
+        result = nbr(ds)
+        np.testing.assert_allclose(result.values, 0.5, atol=1e-5)
+
+    def test_values_in_minus1_to_1(self) -> None:
+        ds = make_tanager_ds(nir_val=0.4, swir2_val=0.6)
+        result = nbr(ds)
+        assert float(result.min()) >= -1.0
+        assert float(result.max()) <= 1.0
+
+    def test_nan_when_denominator_zero(self) -> None:
+        ds = make_tanager_ds(nir_val=0.0, swir2_val=0.0)
+        result = nbr(ds)
+        assert np.all(np.isnan(result.values))
+
+    def test_no_inf_values(self) -> None:
+        ds = make_tanager_ds(nir_val=0.0, swir2_val=0.0)
+        result = nbr(ds)
+        assert not np.any(np.isinf(result.values))
+
+    def test_spatial_dims_preserved(self) -> None:
+        ds = make_tanager_ds(shape=(8, 6))
+        result = nbr(ds)
+        assert result.sizes.get("y") == 8
+        assert result.sizes.get("x") == 6
+
+    def test_does_not_modify_input(self) -> None:
+        ds = make_tanager_ds()
+        original_size = ds.sizes["wavelength"]
+        nbr(ds)
+        assert ds.sizes["wavelength"] == original_size
+
+
+# ---------------------------------------------------------------------------
+# NDVI
+# ---------------------------------------------------------------------------
+
+
+class TestNDVI:
+    def test_returns_dataarray(self) -> None:
+        ds = make_tanager_ds()
+        result = ndvi(ds)
+        assert isinstance(result, xr.DataArray)
+
+    def test_correct_formula(self) -> None:
+        # NDVI = (NIR - Red) / (NIR + Red) = (0.6 - 0.1) / (0.6 + 0.1) ≈ 0.714
+        ds = make_tanager_ds(nir_val=0.6, red_val=0.1)
+        result = ndvi(ds)
+        expected = (0.6 - 0.1) / (0.6 + 0.1)
+        np.testing.assert_allclose(result.values, expected, atol=1e-5)
+
+    def test_values_in_minus1_to_1(self) -> None:
+        ds = make_tanager_ds(nir_val=0.2, red_val=0.8)
+        result = ndvi(ds)
+        assert float(result.min()) >= -1.0
+        assert float(result.max()) <= 1.0
+
+    def test_nan_when_denominator_zero(self) -> None:
+        ds = make_tanager_ds(nir_val=0.0, red_val=0.0)
+        result = ndvi(ds)
+        assert np.all(np.isnan(result.values))
+
+    def test_no_inf_values(self) -> None:
+        ds = make_tanager_ds(nir_val=0.0, red_val=0.0)
+        result = ndvi(ds)
+        assert not np.any(np.isinf(result.values))
+
+
+# ---------------------------------------------------------------------------
+# NDWI
+# ---------------------------------------------------------------------------
+
+
+class TestNDWI:
+    def test_returns_dataarray(self) -> None:
+        ds = make_tanager_ds()
+        result = ndwi(ds)
+        assert isinstance(result, xr.DataArray)
+
+    def test_correct_formula(self) -> None:
+        # NDWI = (Green - NIR) / (Green + NIR) = (0.3 - 0.6) / (0.3 + 0.6) = -0.333...
+        ds = make_tanager_ds(green_val=0.3, nir_val=0.6)
+        result = ndwi(ds)
+        expected = (0.3 - 0.6) / (0.3 + 0.6)
+        np.testing.assert_allclose(result.values, expected, atol=1e-5)
+
+    def test_values_in_minus1_to_1(self) -> None:
+        ds = make_tanager_ds(green_val=0.8, nir_val=0.2)
+        result = ndwi(ds)
+        assert float(result.min()) >= -1.0
+        assert float(result.max()) <= 1.0
+
+    def test_nan_when_denominator_zero(self) -> None:
+        ds = make_tanager_ds(nir_val=0.0, green_val=0.0)
+        result = ndwi(ds)
+        assert np.all(np.isnan(result.values))
+
+    def test_no_inf_values(self) -> None:
+        ds = make_tanager_ds(nir_val=0.0, green_val=0.0)
+        result = ndwi(ds)
+        assert not np.any(np.isinf(result.values))
+
+
+# ---------------------------------------------------------------------------
+# dNBR
+# ---------------------------------------------------------------------------
+
+
+class TestDNBR:
+    def test_returns_dataarray(self) -> None:
+        pre = make_tanager_ds(nir_val=0.6, swir2_val=0.2)
+        post = make_tanager_ds(nir_val=0.3, swir2_val=0.5)
+        result = dnbr(pre, post)
+        assert isinstance(result, xr.DataArray)
+
+    def test_correct_formula(self) -> None:
+        # NBR_pre = (0.6 - 0.2) / (0.6 + 0.2) = 0.5
+        # NBR_post = (0.3 - 0.5) / (0.3 + 0.5) = -0.25
+        # dNBR = 0.5 - (-0.25) = 0.75
+        pre = make_tanager_ds(nir_val=0.6, swir2_val=0.2)
+        post = make_tanager_ds(nir_val=0.3, swir2_val=0.5)
+        result = dnbr(pre, post)
+        expected = 0.5 - (-0.25)
+        np.testing.assert_allclose(result.values, expected, atol=1e-5)
+
+    def test_raises_on_spatial_dim_mismatch(self) -> None:
+        pre = make_tanager_ds(shape=(4, 4))
+        post = make_tanager_ds(shape=(8, 4))
+        with pytest.raises(ValueError, match="Spatial dimensions"):
+            dnbr(pre, post)
+
+    def test_raises_on_x_dim_mismatch(self) -> None:
+        pre = make_tanager_ds(shape=(4, 4))
+        post = make_tanager_ds(shape=(4, 8))
+        with pytest.raises(ValueError, match="Spatial dimensions"):
+            dnbr(pre, post)
+
+    def test_zero_when_pre_equals_post(self) -> None:
+        ds = make_tanager_ds(nir_val=0.5, swir2_val=0.3)
+        result = dnbr(ds, ds)
+        np.testing.assert_allclose(result.values, 0.0, atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# continuum_removal
+# ---------------------------------------------------------------------------
+
+
+class TestContinuumRemoval:
+    def test_returns_dataarray(self) -> None:
+        ds = make_tanager_ds()
+        result = continuum_removal(ds)
+        assert isinstance(result, xr.DataArray)
+
+    def test_values_in_0_to_1(self) -> None:
+        rng = np.random.default_rng(0)
+        wavelengths = np.linspace(400, 2400, 426)
+        data = rng.random((426, 4, 4)).astype(np.float32)
+        ds = xr.Dataset(
+            {"reflectance": (["wavelength", "y", "x"], data)},
+            coords={"wavelength": wavelengths},
+        )
+        result = continuum_removal(ds)
+        valid = result.values[~np.isnan(result.values)]
+        assert np.all(valid >= 0.0), "Values below 0 found"
+        assert np.all(valid <= 1.0), "Values above 1 found"
+
+    def test_wavelength_range_subset(self) -> None:
+        rng = np.random.default_rng(1)
+        wavelengths = np.linspace(400, 2400, 426)
+        data = rng.random((426, 4, 4)).astype(np.float32)
+        ds = xr.Dataset(
+            {"reflectance": (["wavelength", "y", "x"], data)},
+            coords={"wavelength": wavelengths},
+        )
+        result = continuum_removal(ds, wavelength_range=(600.0, 900.0))
+        wl_out = result.coords["wavelength"].values
+        assert np.all(wl_out >= 600.0)
+        assert np.all(wl_out <= 900.0)
+
+    def test_output_wavelength_dim_present(self) -> None:
+        ds = make_tanager_ds()
+        result = continuum_removal(ds)
+        assert "wavelength" in result.dims
+
+    def test_spatial_dims_preserved(self) -> None:
+        rng = np.random.default_rng(2)
+        wavelengths = np.linspace(400, 2400, 426)
+        data = rng.random((426, 6, 8)).astype(np.float32)
+        ds = xr.Dataset(
+            {"reflectance": (["wavelength", "y", "x"], data)},
+            coords={"wavelength": wavelengths},
+        )
+        result = continuum_removal(ds)
+        assert result.sizes.get("y") == 6
+        assert result.sizes.get("x") == 8
+
+    def test_does_not_modify_input(self) -> None:
+        ds = make_tanager_ds()
+        original_size = ds.sizes["wavelength"]
+        continuum_removal(ds)
+        assert ds.sizes["wavelength"] == original_size
+
+
+# ---------------------------------------------------------------------------
+# Task 29 explicit verification: NBR on synthetic data
+# ---------------------------------------------------------------------------
+
+
+def test_task29_nbr_verification() -> None:
+    """Task 29: NBR on synthetic data — values in [-1, 1], NaN where denom=0."""
+    # Arrange: 5x5 spatial grid; set NIR and SWIR2 uniformly (denom > 0)
+    wavelengths = np.linspace(380, 2500, 426)
+    n_wl = len(wavelengths)
+    data = np.zeros((n_wl, 5, 5), dtype=np.float32)
+
+    nir_idx = int(np.argmin(np.abs(wavelengths - 860)))
+    swir2_idx = int(np.argmin(np.abs(wavelengths - 2200)))
+    data[nir_idx, :, :] = 0.7
+    data[swir2_idx, :, :] = 0.3
+
+    ds = xr.Dataset(
+        {"reflectance": (["wavelength", "y", "x"], data)},
+        coords={"wavelength": wavelengths},
+    )
+
+    result = nbr(ds)
+    vals = result.values
+
+    # All pixels have valid denominator — no NaN expected
+    assert not np.any(np.isnan(vals)), "Unexpected NaN in NBR result"
+    assert np.all(vals >= -1.0) and np.all(vals <= 1.0), "NBR out of [-1, 1]"
+    expected = (0.7 - 0.3) / (0.7 + 0.3)
+    np.testing.assert_allclose(vals, expected, atol=1e-5)
+
+    # Now test NaN-on-zero-denominator by zeroing both bands
+    data[nir_idx, :, :] = 0.0
+    data[swir2_idx, :, :] = 0.0
+    ds_zero = xr.Dataset(
+        {"reflectance": (["wavelength", "y", "x"], data)},
+        coords={"wavelength": wavelengths},
+    )
+    result_zero = nbr(ds_zero)
+    assert np.all(np.isnan(result_zero.values)), "Expected all NaN when denominator=0"
+    assert not np.any(np.isinf(result_zero.values)), "Unexpected Inf in NBR result"

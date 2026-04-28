@@ -24,6 +24,7 @@ dependencies = [
     "requests",
     "spyndex",
     "h5py",
+    "scipy>=1.10",
 ]
 
 [project.optional-dependencies]
