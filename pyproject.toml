@@ -26,6 +26,8 @@ dependencies = [
     "spyndex",
     "h5py",
     "scipy>=1.10",
+    "spectral-libraries>=1.1.3",
+    "joblib",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +36,11 @@ dev = [
     "ruff",
     "mypy",
 ]
+mesma = ["mesma>=1.0.8"]
+# splib07-loader is not on PyPI; repo https://github.com/RobertSparworthy/splib07-loader.git
+# returned "Repository not found" as of 2026-04-28. Install manually if the repo becomes
+# available, or replace with an alternative USGS spectral loader.
+# splib07 = ["splib07-loader @ git+https://github.com/RobertSparworthy/splib07-loader.git"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
