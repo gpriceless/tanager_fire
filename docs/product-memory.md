@@ -5,7 +5,7 @@
 **Location:** `/docs/product-memory.md`
 **Owner:** Product Queen
 **Updated:** 2026-04-27
-**Version:** 2.0
+**Version:** 2.1
 
 ---
 
@@ -18,22 +18,26 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 ## Current State
 
 **Last Updated:** 2026-04-27
-**Current Phase:** Phase 2 — Data Pipeline & Project Scaffolding (spec complete, awaiting EM review)
+**Current Phase:** Phase 3 — Core Analysis (MESMA + LFMC) — spec proposed, awaiting EM review
 
 ### What Exists
 | Capability | Status | Key Details |
 |-----------|--------|-------------|
-| Prior Research | Complete | Competition analysis + deep research (from detr_geo) |
+| Prior Research | Complete | Competition analysis + deep research |
 | Literature Review | Complete | MESMA burn severity + PLSR LFMC methodology validated |
 | Data Access Research | Complete | STAC catalog, HyperCoast I/O, scene inventory confirmed |
-| Project Setup | In Progress | OpenSpec initialized, memory system created, change 002 proposed |
-| Data Pipeline (code) | Not Started | Spec ready at `openspec/changes/002-data-pipeline/` |
-| Analysis Pipeline | Not Started | Phase 3 — depends on data pipeline |
+| Project Setup | Complete | OpenSpec, memory system, pyproject.toml, editable install |
+| Data Pipeline (code) | **Complete** | 41/41 tasks, 159 tests passing. Modules: config, catalog, io, spectral, masks |
+| Core Analysis | **Specced** | OpenSpec 003-core-analysis proposed. 4 new modules planned. |
+| Packaging & Submission | Not Started | Phase 4 — depends on analysis pipeline |
 
 ### Remaining Gaps
-- No Tanager data downloaded or accessible locally
-- No spectral analysis code
-- No Jupyter notebook structure
+- No MESMA unmixing code
+- No endmember library management
+- No LFMC estimation code
+- No burn severity regression
+- No validation framework
+- No Jupyter notebook structure (Phase 4)
 - Competition track not formally selected (but FireSpec direction confirmed)
 
 ---
@@ -55,8 +59,15 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 - Static STAC catalog, no auth: `planet.com/data/stac/tanager-core-imagery/catalog.json`
 - Use `pystac` (NOT pystac-client) for static catalog
 - HDF-EOS5 format, HyperCoast `read_tanager()` → xarray.Dataset
-- 12 fire scenes: pre-fire (Dec 15), post-fire (Jan 23), recovery (Apr, Jul, Sep)
-- Ortho Surface Reflectance is primary product (~6 GB for fire collection)
+- 11 fire scenes (confirmed): pre-fire (Dec 15), post-fire (Jan 23), recovery (Apr, Jul, Sep)
+- Ortho Surface Reflectance is primary product (~480 MB/scene)
+
+**Endmember Library Research** (Tobler, 2026-04-27):
+- FRAMES SoCal chaparral: 66 spectra (7 char/ash, 36 GV, 13 NPV, 10 soil) from Old Fire + Simi Fire
+- USGS v7: char/charcoal, heated soils, chaparral vegetation
+- ECOSTRESS: 541 vegetation + 51 NPV spectra (VSWIR)
+- Strategy: hybrid library with In-CoB + EAR/MASA selection → ~52-78 final spectra
+- Tools: spectral-libraries v1.1.3 (EarMasaCob), splib07-loader, SPy BandResampler
 
 ### 6 Project Ideas (Tobler, April 2026)
 
@@ -80,8 +91,8 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 | Phase | Focus | Timeline | Status |
 |-------|-------|----------|--------|
 | 1 | Foundation & Literature Review | Apr 2026 | **Complete** |
-| 2 | Data Pipeline & Project Scaffolding | Apr-May 2026 | **Specced** (002-data-pipeline) |
-| 3 | Core Analysis (MESMA, LFMC) | May-Jun 2026 | Planned |
+| 2 | Data Pipeline & Project Scaffolding | Apr 2026 | **Complete** (41/41 tasks, 159 tests) |
+| 3 | Core Analysis (MESMA, LFMC) | Apr-Jun 2026 | **Specced** (003-core-analysis) |
 | 4 | Packaging & Submission | Jul-Aug 2026 | Planned |
 
 ---
@@ -90,6 +101,8 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 
 | Date | Event | Details |
 |------|-------|---------|
+| 2026-04-27 | Phase 3 spec proposed | OpenSpec 003-core-analysis: MESMA + LFMC + severity + validation |
+| 2026-04-27 | Phase 2 complete | 41/41 tasks done, 159 tests passing, all modules shipped |
 | 2026-04-27 | Phase 1 research complete | Literature review + data access evaluation finished |
 | 2026-04-27 | Phase 2 spec proposed | OpenSpec change 002-data-pipeline created, TANAGER-5 |
 | 2026-04-27 | Project initialized | OpenSpec, memory system, and research infrastructure set up |
@@ -101,6 +114,10 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 
 | Date | Decision | Rationale |
 |------|----------|-----------|
+| 2026-04-27 | Phase 3 uses mesma v1.0.8 with HySUPP fallback | mesma is proven but old; HySUPP provides safety net |
+| 2026-04-27 | Hybrid endmember library strategy | FRAMES primary + USGS + ECOSTRESS + image-derived covers all cases |
+| 2026-04-27 | LFMC Tier 1 + Tier 2 only (defer RTM) | Indices + PLSR sufficient for competition; RTM is overengineered |
+| 2026-04-27 | Random Forest for severity regression | Handles nonlinear fraction→CBI relationship; proven in literature |
 | 2026-04-27 | Focus on FireSpec (wildfire) | Board direction + timely case study + OGC gap |
 | 2026-04-27 | Separate project from detr_geo | Different sensor, different tech stack, different deliverable |
 | 2026-04-27 | Use HyperCoast for I/O, SPy for spectral | Research evaluation: HyperCoast handles Tanager format, SPy is mature for analysis |
@@ -111,9 +128,10 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 
 ## Open Threads
 
-1. **HyperCoast version pinning** — Pin to 0.22.0 or use latest? (EM to decide)
-2. **Data directory convention** — `data/raw/fire/` vs env var? (EM to decide)
-3. **MESMA package choice** — SPy vs mesma v1.0.8 for Phase 3 (deferred)
-4. **Competition track selection** — Lightning Case Studies vs Code & Scripts vs Technical Analysis
-5. **Field CBI data** — Can we obtain ground truth for LA fires?
-6. **EMIT cross-validation** — Are EMIT scenes available over LA for comparison?
+1. **mesma v1.0.8 compatibility** — Must test with Python 3.10+ / numpy 2.x before Wave 2 starts
+2. **FRAMES SoCal library acquisition** — Need to confirm download mechanism (bulk vs scrape)
+3. **Globe-LFMC SoCal coverage** — Verify sufficient chaparral observations for LFMC training
+4. **AVIRIS-3 Eaton Fire access** — Confirm ORNL DAAC public availability
+5. **Competition track selection** — Lightning Case Studies vs Code & Scripts vs Technical Analysis
+6. **Field CBI data** — Can we obtain ground truth for LA fires? (May need to use BARC-derived proxy)
+7. **Ash vs. char separation** — Only 7 combined spectra in FRAMES; may need supplementary measurements
