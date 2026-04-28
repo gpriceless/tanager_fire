@@ -149,32 +149,32 @@
 <!-- execution_mode: sequential (within track) -->
 <!-- network: none — all operations on in-memory xarray datasets -->
 
-- [ ] Add `nbr(dataset)` computing (NIR_860 - SWIR_2200) / (NIR_860 + SWIR_2200), returning DataArray
+- [x] Add `nbr(dataset)` computing (NIR_860 - SWIR_2200) / (NIR_860 + SWIR_2200), returning DataArray
   <!-- files: src/tanager/spectral.py (modify) -->
   <!-- pattern: import BAND_ALIASES from tanager.config to get NIR=860nm, SWIR2=2200nm. Use select_bands(dataset, wavelengths=[860]) to get nearest band. Compute normalized difference. -->
   <!-- gotcha: use .sel(wavelength=860, method="nearest") for band lookup. Tanager's 5nm spacing means the nearest band to 860nm will be within 2.5nm. -->
 
-- [ ] Add `ndvi(dataset)` computing (NIR_860 - Red_660) / (NIR_860 + Red_660)
+- [x] Add `ndvi(dataset)` computing (NIR_860 - Red_660) / (NIR_860 + Red_660)
   <!-- files: src/tanager/spectral.py (modify) -->
 
-- [ ] Add `ndwi(dataset)` computing (Green_560 - NIR_860) / (Green_560 + NIR_860)
+- [x] Add `ndwi(dataset)` computing (Green_560 - NIR_860) / (Green_560 + NIR_860)
   <!-- files: src/tanager/spectral.py (modify) -->
 
-- [ ] Add `dnbr(pre, post)` computing NBR_pre - NBR_post
+- [x] Add `dnbr(pre, post)` computing NBR_pre - NBR_post
   <!-- files: src/tanager/spectral.py (modify) -->
   <!-- gotcha: pre and post are separate xarray.Datasets. They must have compatible spatial dimensions. Do NOT assume they are co-registered — add a shape check and raise ValueError if spatial dims differ. -->
 
-- [ ] Ensure all index functions return NaN (not Inf) when denominator is zero
+- [x] Ensure all index functions return NaN (not Inf) when denominator is zero
   <!-- files: src/tanager/spectral.py (modify) -->
   <!-- pattern: use np.where(denominator == 0, np.nan, numerator / denominator) or xarray's built-in where(). Apply to all normalized difference functions. -->
 
-- [ ] Add `continuum_removal(dataset, wavelength_range)` using convex hull continuum fitting
+- [x] Add `continuum_removal(dataset, wavelength_range)` using convex hull continuum fitting
   <!-- files: src/tanager/spectral.py (modify) -->
   <!-- gotcha: convex hull continuum fitting: (1) extract reflectance spectrum for wavelength range, (2) compute upper convex hull of (wavelength, reflectance) points, (3) interpolate hull to all wavelengths, (4) divide reflectance by hull values. Use scipy.spatial.ConvexHull or an iterative approach. Result should be in [0, 1] but floating-point may produce values slightly > 1.0 at hull vertices — clip with np.minimum(result, 1.0). When wavelength_range is None, apply to full spectrum. -->
   <!-- gotcha: this must work per-pixel. For a spatial dataset, vectorize over (y, x) dimensions. Consider np.apply_along_axis or xarray.apply_ufunc for performance. -->
   <!-- dep: add scipy to pyproject.toml dependencies if not already present — needed for ConvexHull -->
 
-- [ ] Verify: Compute NBR on a real fire scene, confirm values in [-1, 1] range, NaN only where masked
+- [x] Verify: Compute NBR on a real fire scene, confirm values in [-1, 1] range, NaN only where masked
   <!-- verify: manual — requires downloaded scene. Can also be partially verified with synthetic data. -->
   <!-- network: none — uses local file -->
 
@@ -182,25 +182,25 @@
 <!-- execution_mode: sequential (within track) -->
 <!-- network: none — all operations on in-memory xarray datasets -->
 
-- [ ] Create `src/tanager/masks.py` with `nodata_mask(dataset, fill_value)` returning boolean DataArray (True=valid)
+- [x] Create `src/tanager/masks.py` with `nodata_mask(dataset, fill_value)` returning boolean DataArray (True=valid)
   <!-- files: src/tanager/masks.py (new) -->
   <!-- pattern: check all bands — a pixel is valid only if ALL bands have finite, non-NaN values. Use xarray's .notnull().all(dim="wavelength"). If fill_value is provided, also mask pixels where any band equals fill_value. -->
   <!-- gotcha: fill_value parameter should default to None (NaN-only check). When fill_value=-9999, check with == comparison before the NaN check. -->
 
-- [ ] Add `cloud_mask(dataset)` reading beta_cirrus_mask from HDF5 metadata, with fallback to all-True when field is absent
+- [x] Add `cloud_mask(dataset)` reading beta_cirrus_mask from HDF5 metadata, with fallback to all-True when field is absent
   <!-- files: src/tanager/masks.py (modify) -->
   <!-- gotcha: HyperCoast's read_tanager() may NOT expose beta_cirrus_mask in the xarray dataset. The coder needs to: (1) check if the field exists in dataset or dataset.attrs, (2) if not, open the source HDF5 file directly with h5py to read /HDFEOS/SWATHS/HYP/Metadata/beta_cirrus_mask (or similar path), (3) if the field doesn't exist in HDF5 either, return all-True mask with a warning log. This requires h5py (added to dependencies in Section 1 task 1). The function signature should accept either a dataset (with a .encoding["source"] or filepath attr) or a filepath string. -->
 
-- [ ] Add `water_mask(dataset, threshold)` using NDWI computation
+- [x] Add `water_mask(dataset, threshold)` using NDWI computation
   <!-- files: src/tanager/masks.py (modify) -->
   <!-- pattern: import ndwi from tanager.spectral. Compute NDWI, return boolean DataArray where True = land (NDWI <= threshold). Default threshold=0.3 per spec. -->
   <!-- gotcha: circular dependency risk — masks.py imports from spectral.py. This is fine as long as spectral.py does NOT import from masks.py. Verify this remains true. -->
 
-- [ ] Add `apply_masks(dataset, mask_list)` applying logical AND of all masks, setting masked pixels to NaN
+- [x] Add `apply_masks(dataset, mask_list)` applying logical AND of all masks, setting masked pixels to NaN
   <!-- files: src/tanager/masks.py (modify) -->
   <!-- pattern: combine = reduce(lambda a, b: a & b, mask_list). Then dataset.where(combine). This sets all masked pixels to NaN across all bands. -->
 
-- [ ] Verify: Apply combined mask to a fire scene, confirm masked pixels are NaN and unmasked pixels retain original values
+- [x] Verify: Apply combined mask to a fire scene, confirm masked pixels are NaN and unmasked pixels retain original values
   <!-- verify: manual with real data, or with synthetic data using known mask regions. -->
   <!-- network: none -->
 
@@ -209,30 +209,30 @@
 <!-- blocked_by: Track D (spectral indices), Track E (masks) -->
 <!-- network: none — all tests use synthetic data or mocked HTTP -->
 
-- [ ] Create `tests/conftest.py` with `synthetic_tanager_dataset()` fixture: 426 bands, 380-2500nm, 50x50 pixels, Float32 reflectance [0,1]
+- [x] Create `tests/conftest.py` with `synthetic_tanager_dataset()` fixture: 426 bands, 380-2500nm, 50x50 pixels, Float32 reflectance [0,1]
   <!-- files: tests/conftest.py (new) -->
   <!-- pattern: use xarray.Dataset with coords: wavelength=np.linspace(380, 2500, 426), y=range(50), x=range(50). Data variable "reflectance" with random Float32 values clipped to [0, 1]. Add wavelength as a proper coordinate. -->
 
-- [ ] Add `synthetic_tanager_dataset(signatures=["vegetation", "char", "soil"])` with known spectral profiles in specific pixel regions
+- [x] Add `synthetic_tanager_dataset(signatures=["vegetation", "char", "soil"])` with known spectral profiles in specific pixel regions
   <!-- files: tests/conftest.py (modify) -->
   <!-- gotcha: vegetation signature — high NIR plateau (750-1300nm ~0.4-0.5), chlorophyll absorption dip at 680nm (~0.05), cellulose features at 2100nm. Char signature — low flat reflectance (~0.02-0.05), slight rise in SWIR. Soil signature — monotonic increase VNIR to SWIR (~0.1-0.3). Place each signature in a distinct pixel block (e.g., vegetation at y[0:15], char at y[15:30], soil at y[30:45], random at y[45:50]). -->
 
-- [ ] Create `tests/test_spectral.py` — test band selection, bad band masking, spectral indices (NBR, NDVI, NDWI, dNBR), continuum removal, division-by-zero handling
+- [x] Create `tests/test_spectral.py` — test band selection, bad band masking, spectral indices (NBR, NDVI, NDWI, dNBR), continuum removal, division-by-zero handling
   <!-- files: tests/test_spectral.py (new) -->
   <!-- test: verify select_bands returns correct wavelength range; mask_bad_bands removes ~80-96 bands; NBR of vegetation signature is positive (healthy veg has high NIR); NBR of char is negative or near-zero; division by zero returns NaN not Inf; continuum_removal output in [0, 1]. -->
 
-- [ ] Create `tests/test_masks.py` — test nodata, cloud, water, and combined mask application
+- [x] Create `tests/test_masks.py` — test nodata, cloud, water, and combined mask application
   <!-- files: tests/test_masks.py (new) -->
   <!-- test: nodata_mask correctly identifies NaN pixels; fill_value=-9999 is caught; water_mask with NDWI threshold separates water pixels; apply_masks with multiple masks produces logical AND; masked pixels are NaN in output. -->
 
-- [ ] Create `tests/test_catalog.py` — test STAC browsing, date filtering, metadata extraction with mocked HTTP responses
+- [x] Create `tests/test_catalog.py` — test STAC browsing, date filtering, metadata extraction with mocked HTTP responses
   <!-- files: tests/test_catalog.py (new) -->
   <!-- pattern: use unittest.mock.patch or pytest-mock to mock pystac.Catalog.from_file(). Create mock STAC items with known IDs, datetimes, bboxes, and assets. Test list_fire_scenes returns all items, date filtering works, get_scene_metadata extracts correct fields, ConnectionError is raised when catalog is unreachable. -->
 
-- [ ] Create `tests/test_io.py` — test scene loading, band subsetting, spatial info extraction, and invalid file handling with mocked HyperCoast
+- [x] Create `tests/test_io.py` — test scene loading, band subsetting, spatial info extraction, and invalid file handling with mocked HyperCoast
   <!-- files: tests/test_io.py (new) -->
   <!-- pattern: use unittest.mock.patch to mock hypercoast.read_tanager(). Return a synthetic xarray.Dataset from the mock. Test load_scene returns correct dims (wavelength, y, x); load_scene with wavelength_range returns subset; get_spatial_info extracts CRS, bounds, resolution, shape; load_scene with invalid path raises ValueError. -->
 
-- [ ] Verify: `pytest tests/` passes with all tests green
+- [x] Verify: `pytest tests/` passes with all tests green
   <!-- verify: automated — `pytest tests/ -v` should pass. -->
   <!-- network: none — all tests use mocks or synthetic data -->
