@@ -100,7 +100,7 @@
        Other modules (unmixing.py, severity.py) will import FROM endmembers.py. -->
   <!-- acceptance: module imports cleanly with `from tanager import endmembers` -->
 
-- [ ] Implement `load_usgs_library(categories, data_dir)` parsing USGS v7 ASCII files; return xarray DataArray (spectrum_id, wavelength) with metadata attrs
+- [x] Implement `load_usgs_library(categories, data_dir)` parsing USGS v7 ASCII files; return xarray DataArray (spectrum_id, wavelength) with metadata attrs
   <!-- files: src/tanager/endmembers.py (modify) -->
   <!-- pattern: return xr.DataArray with dims=(spectrum_id, wavelength), coords={wavelength: nm values},
        attrs={name: str, category: str, source: "usgs_v7"} per spectrum. Use spectrum_id as a
@@ -707,7 +707,7 @@ Verify: severity module produces classified maps with correct class boundaries; 
        test data (synthetic library with known categories). -->
   <!-- acceptance: all loader, resampler, selector, and pruner functions tested; mocks used for I/O -->
 
-- [ ] Expand `tests/test_unmixing.py` — test MESMA on synthetic pure pixels (expect fraction=1.0 for matching endmember), constraint filtering rejects bad fits, shade normalization sums to 1.0
+- [x] Expand `tests/test_unmixing.py` — test MESMA on synthetic pure pixels (expect fraction=1.0 for matching endmember), constraint filtering rejects bad fits, shade normalization sums to 1.0
   <!-- files: tests/test_unmixing.py (modify — FILE ALREADY EXISTS with 19 tests from Wave 2 QA) -->
   <!-- pattern: use synthetic_tanager_dataset_with_signatures fixture. Create a small endmember
        library from the known signatures. Run unmixing. Verify fractions.

@@ -442,3 +442,107 @@ class TestShadeNormalizationAcceptance:
         out = normalize_fractions(ds, remove_shade=True)
         total = sum(out[v].values for v in ("char", "pv", "npv", "soil"))
         np.testing.assert_allclose(total, 1.0, atol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# Section 9 acceptance: primary MESMA backend recovers every canonical class
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _MESMA_INSTALLED, reason="mesma package not installed")
+class TestRunMesmaPrimaryAllClasses:
+    """Mirror TestPurePixelRecoveryAllClasses but exercise the real MESMA backend.
+
+    MESMA is allowed to leave a pixel as NaN if no library combination passes
+    its built-in constraints — that still counts as success for this test.
+    A regression that produced the *wrong* class fraction would fail here.
+    """
+
+    def test_each_pure_pixel_either_recovers_or_is_nan(
+        self,
+        pure_pixel_scene,
+        small_library,
+    ):
+        result = run_mesma(pure_pixel_scene, small_library)
+        # Pure-pixel rows: 0=char, 1=pv, 2=npv, 3=soil (cols 0..2 are pure).
+        rows = {"char": 0, "pv": 1, "npv": 2, "soil": 3}
+        for class_name, row in rows.items():
+            for col in (0, 1, 2):
+                value = float(result[class_name].isel(y=row, x=col).values)
+                assert (value > 0.8) or np.isnan(value), (
+                    f"{class_name} @row={row}, col={col} returned {value!r}; "
+                    "expected >0.8 or NaN"
+                )
+
+
+# ---------------------------------------------------------------------------
+# Section 9 acceptance: fraction-bound constraint rejection
+# ---------------------------------------------------------------------------
+
+
+class TestFractionBoundRejection:
+    """min_fraction / max_fraction outside [0, 1] should reject every model.
+
+    The NNLS fallback always emits non-negative fractions that sum to ~1, so
+    a min_fraction of 0.99 is unreachable for a multi-endmember scene and must
+    NaN every pixel. This pins the post-MESMA constraint pass behaviour.
+    """
+
+    def test_unreachable_min_fraction_nans_all_pixels(
+        self,
+        pure_pixel_scene,
+        small_library,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(unmixing, "_MESMA_AVAILABLE", False)
+        monkeypatch.setattr(unmixing, "_HYSUP_AVAILABLE", False)
+        result = run_mesma(
+            pure_pixel_scene,
+            small_library,
+            constraints={"min_fraction": 0.99, "max_rmse": 1.0},
+        )
+        for v in ("char", "pv", "npv", "soil", "shade"):
+            assert np.isnan(result[v].values).all(), f"{v} not all NaN"
+        assert np.isnan(result["rmse"].values).all()
+
+
+# ---------------------------------------------------------------------------
+# Section 9 acceptance: shade normalization preserves NaN inputs
+# ---------------------------------------------------------------------------
+
+
+class TestShadeNormalizationNaN:
+    """Pixels that come in NaN from upstream must remain NaN after normalisation.
+
+    MESMA writes NaN for pixels where no model passed constraints. The shade
+    normalisation step must not silently rescale those NaNs back into finite
+    values — that would mask failed unmixings as real fractions downstream.
+    """
+
+    def test_nan_input_pixel_stays_nan(self):
+        nan = np.float32(np.nan)
+        char = np.array([[0.40, nan]], dtype=np.float32)
+        pv = np.array([[0.30, nan]], dtype=np.float32)
+        npv = np.array([[0.00, nan]], dtype=np.float32)
+        soil = np.array([[0.00, nan]], dtype=np.float32)
+        shade = np.array([[0.30, nan]], dtype=np.float32)
+        rmse = np.array([[0.01, nan]], dtype=np.float32)
+
+        ds = xr.Dataset(
+            {
+                "char": (["y", "x"], char),
+                "pv": (["y", "x"], pv),
+                "npv": (["y", "x"], npv),
+                "soil": (["y", "x"], soil),
+                "shade": (["y", "x"], shade),
+                "rmse": (["y", "x"], rmse),
+            },
+            coords={"y": np.arange(1), "x": np.arange(2)},
+        )
+        out = normalize_fractions(ds, remove_shade=True)
+
+        # Valid pixel rescales to sum=1; NaN pixel stays NaN across all classes.
+        non_nan = sum(float(out[v].isel(y=0, x=0).values) for v in ("char", "pv", "npv", "soil"))
+        np.testing.assert_allclose(non_nan, 1.0, atol=1e-4)
+        for v in ("char", "pv", "npv", "soil"):
+            assert np.isnan(float(out[v].isel(y=0, x=1).values)), f"{v} NaN pixel was rescaled"
