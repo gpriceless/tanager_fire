@@ -189,18 +189,23 @@ def _align_to_library_grid(
 
 def _library_class_layout(
     library: xr.DataArray,
-) -> Tuple[list[str], dict[str, list[int]], np.ndarray]:
-    """Return (sorted class list, em-per-class index map, library array).
+) -> Tuple[list[str], dict[str, list[int]], np.ndarray, np.ndarray]:
+    """Return (sorted class list, em-per-class index map, library array, per-em classes).
 
     The MESMA core wants the library shaped ``(n_bands, n_endmembers)`` with
-    a parallel ``class_list`` so it can build per-class endmember combinations.
-    Class ordering is deterministic (alphabetical) so the fraction channel
-    order matches between runs.
+    a parallel ``per_em_classes`` array (one class label per library column) so
+    ``MesmaModels.setup`` can build per-class endmember combinations. The
+    ``class_list`` returned here is the alphabetically-sorted unique class set;
+    MESMA's output channel ordering follows ``np.unique`` (alphabetical) of the
+    per-em labels, so this matches what we need to interpret the result.
 
     Returns:
-        class_list: sorted unique category strings.
-        em_per_class: {category: [library column indices that belong to it]}.
+        class_list: sorted unique category strings (matches mesma channel order).
+        em_per_class: {category: [library column indices that belong to it]},
+            keyed in alphabetical order to align with mesma's channel layout.
         library_arr: float32 array of shape (n_bands, n_endmembers).
+        per_em_classes: 1-D array of class labels with length = n_endmembers,
+            indexed by library column. Pass this to ``MesmaModels.setup``.
     """
     if "category" not in library.coords:
         raise ValueError("library must carry a 'category' coordinate")
@@ -211,7 +216,7 @@ def _library_class_layout(
     em_per_class: dict[str, list[int]] = {c: [] for c in class_list}
     for i, c in enumerate(cats.tolist()):
         em_per_class[c].append(int(i))
-    return class_list, em_per_class, library_arr
+    return class_list, em_per_class, library_arr, cats
 
 
 # ---------------------------------------------------------------------------
@@ -435,7 +440,7 @@ def _apply_post_constraints(
 def _run_mesma_core(
     refl: np.ndarray,
     library_arr: np.ndarray,
-    class_list: Sequence[str],
+    per_em_classes: np.ndarray,
     em_per_class: Mapping[str, list[int]],
     constraints_tuple: Tuple[float, ...],
 ) -> Tuple[np.ndarray, np.ndarray]:
@@ -443,6 +448,7 @@ def _run_mesma_core(
 
     ``refl`` shape: ``(n_bands, n_rows, n_cols)`` (bands-first).
     ``library_arr`` shape: ``(n_bands, n_endmembers)`` (bands-first).
+    ``per_em_classes`` shape: ``(n_endmembers,)`` — class label per library column.
 
     Returns ``fractions`` of shape ``(n_classes + 1, n_rows, n_cols)`` (shade
     last, alphabetical class order otherwise) and ``rmse`` of shape
@@ -450,9 +456,11 @@ def _run_mesma_core(
     """
     from mesma.core.mesma import MesmaCore, MesmaModels  # imported lazily
 
-    # Build the look-up table over 2-EM and 3-EM combinations.
+    # MesmaModels.setup expects per-em (per-library-column) class labels, NOT
+    # the unique sorted class list. Passing unique-sorted causes MESMA to
+    # mis-map library columns to class indices when n_unique != n_em.
     models = MesmaModels()
-    models.setup(list(class_list))
+    models.setup(list(per_em_classes))
     look_up_table = models.return_look_up_table()
 
     core = MesmaCore(n_cores=1)
@@ -712,12 +720,12 @@ def run_mesma(
             f"scene reflectance must be 3D (wavelength, y, x), got shape {refl_arr.shape}"
         )
 
-    class_list, em_per_class, library_arr = _library_class_layout(library)
+    class_list, em_per_class, library_arr, per_em_classes = _library_class_layout(library)
 
     constraints_tuple = _to_mesma_constraints_tuple(constraints_resolved)
     try:
         fractions, rmse_map = _run_mesma_core(
-            refl_arr, library_arr, class_list, em_per_class, constraints_tuple
+            refl_arr, library_arr, per_em_classes, em_per_class, constraints_tuple
         )
     except Exception as exc:
         logger.warning(
