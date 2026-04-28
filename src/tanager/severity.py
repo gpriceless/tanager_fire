@@ -388,3 +388,127 @@ def predict_severity(
     )
 
     return {"cbi_map": cbi_map, "severity_map": severity_map}
+
+
+# ---------------------------------------------------------------------------
+# Multi-temporal trajectories
+# ---------------------------------------------------------------------------
+
+
+def _scenes_share_grid(scenes: Sequence[xr.Dataset]) -> bool:
+    """Return True iff every scene has identical ``y`` / ``x`` coordinates."""
+    if len(scenes) < 2:
+        return True
+    first = scenes[0]
+    if "y" not in first.coords or "x" not in first.coords:
+        return False
+    y0 = np.asarray(first.coords["y"].values)
+    x0 = np.asarray(first.coords["x"].values)
+    for ds in scenes[1:]:
+        if "y" not in ds.coords or "x" not in ds.coords:
+            return False
+        if ds.coords["y"].size != y0.size or ds.coords["x"].size != x0.size:
+            return False
+        if not (
+            np.array_equal(np.asarray(ds.coords["y"].values), y0)
+            and np.array_equal(np.asarray(ds.coords["x"].values), x0)
+        ):
+            return False
+    return True
+
+
+def _coerce_time_coord(keys: Sequence[Any]) -> np.ndarray:
+    """Convert the scenes_dict keys into a time coordinate array.
+
+    Tries ``np.datetime64`` first so downstream xarray operations get real
+    datetime semantics; falls back to keeping the keys as objects (typically
+    strings) when conversion fails for any key.
+    """
+    try:
+        return np.array([np.datetime64(k) for k in keys], dtype="datetime64[ns]")
+    except (TypeError, ValueError):
+        return np.asarray(keys)
+
+
+def compute_trajectories(
+    scenes_dict: Mapping[str, xr.Dataset],
+    library: xr.DataArray,
+    *,
+    constraints: Optional[Mapping[str, float]] = None,
+    bands: Optional[np.ndarray] = None,
+    align: bool = True,
+) -> xr.Dataset:
+    """Run MESMA on a dictionary of dated scenes and stack the results.
+
+    Each value in ``scenes_dict`` is unmixed against the same endmember
+    ``library`` (so fraction maps are directly comparable across dates), and
+    the resulting per-class fraction Datasets are concatenated along a new
+    ``time`` dimension. The output preserves the canonical fraction schema
+    from :func:`tanager.unmixing.run_mesma` — variables ``char``, ``pv``,
+    ``npv``, ``soil``, ``shade``, ``rmse`` — but with dims ``(time, y, x)``.
+
+    Args:
+        scenes_dict: Mapping of date label → ``xr.Dataset`` containing a
+            ``reflectance`` variable. Keys are typically ISO-8601 datetime
+            strings (e.g. ``"2024-12-15T18:00:00"``); they are passed through
+            ``np.datetime64`` so the output ``time`` coord supports the usual
+            xarray time selection. Non-datetime-parseable keys are stored
+            verbatim.
+        library: Endmember library DataArray as produced by
+            :func:`tanager.endmembers.build_fire_library`. The same library
+            is used for every scene to keep fractions comparable.
+        constraints: Optional MESMA constraints dict (forwarded to
+            :func:`tanager.unmixing.run_mesma`).
+        bands: Optional 1-D wavelength array selecting a band subset for
+            unmixing (forwarded to :func:`tanager.unmixing.run_mesma`).
+        align: If True (default), check whether all scenes share an identical
+            ``(y, x)`` grid and call
+            :func:`tanager.io.reproject_to_common_grid` when they don't. Pass
+            ``False`` to skip both the check and the reproject (e.g., for
+            unit tests on hand-built scenes that already share coords).
+
+    Returns:
+        ``xr.Dataset`` with dims ``(time, y, x)``, the canonical MESMA
+        fraction variables, ``rmse``, and a ``time`` coordinate carrying the
+        parsed datetimes (or the raw keys if parsing failed).
+
+    Raises:
+        ValueError: If ``scenes_dict`` is empty, or if ``align=True`` and
+            ``reproject_to_common_grid`` rejects the scenes (overlap below
+            threshold, missing CRS metadata, etc.).
+    """
+    if not scenes_dict:
+        raise ValueError("scenes_dict cannot be empty")
+
+    keys = list(scenes_dict.keys())
+    scenes = [scenes_dict[k] for k in keys]
+
+    if align and len(scenes) >= 2 and not _scenes_share_grid(scenes):
+        from tanager.io import reproject_to_common_grid
+
+        logger.info(
+            "compute_trajectories: aligning %d scenes onto a common grid via reproject_to_common_grid",
+            len(scenes),
+        )
+        scenes = reproject_to_common_grid(scenes)
+
+    # Heavy import here so tests that mock unmixing don't pay for it at import time.
+    from tanager.unmixing import run_mesma
+
+    fraction_datasets: list[xr.Dataset] = []
+    for key, scene in zip(keys, scenes):
+        logger.info("compute_trajectories: unmixing scene %s", key)
+        fractions = run_mesma(scene, library, constraints=constraints, bands=bands)
+        fraction_datasets.append(fractions)
+
+    stacked = xr.concat(fraction_datasets, dim="time")
+    stacked = stacked.assign_coords(time=("time", _coerce_time_coord(keys)))
+    stacked = stacked.transpose("time", ...)
+
+    # Carry forward the engine attr from the first scene (consistent across all
+    # scenes since they share the library and constraints).
+    if "unmixing_engine" in fraction_datasets[0].attrs:
+        stacked.attrs["unmixing_engine"] = fraction_datasets[0].attrs["unmixing_engine"]
+    stacked.attrs["n_scenes"] = len(fraction_datasets)
+
+    return stacked
