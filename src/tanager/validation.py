@@ -542,6 +542,218 @@ def _rank_average_ties(values: np.ndarray) -> np.ndarray:
     return ranks
 
 
+# ---------------------------------------------------------------------------
+# Spectral degradation simulation (sensor cross-comparison)
+#
+# Convolve a Tanager-1 native scene (426 bands, ~5.5 nm FWHM) into the band
+# centres + FWHM of a coarser reference sensor (EMIT, PRISMA, Sentinel-2).
+# Used by the +5 competition tie-breaker — see compare_sensors() above.
+# ---------------------------------------------------------------------------
+
+# Reflectance is bounded in [0, 1] across the pipeline; mirror the constants
+# used in endmembers.py for resample_library() to avoid drift.
+_REFLECTANCE_MIN: float = 0.0
+_REFLECTANCE_MAX: float = 1.0
+# Mean Tanager-1 per-band FWHM. Phase 2 spectral characterisation reported
+# per-band values in 5.20-6.81 nm; 5.5 nm is the operating mean and matches
+# endmembers._DEFAULT_TARGET_FWHM_NM.
+_DEFAULT_TANAGER_FWHM_NM: float = 5.5
+
+
+def simulate_sensor(
+    scene: Union[xr.DataArray, xr.Dataset],
+    target_centers: Union[np.ndarray, Sequence[float]],
+    target_fwhm: Union[float, np.ndarray, Sequence[float]],
+    sensor_name: str,
+    *,
+    source_fwhm: Union[float, np.ndarray, Sequence[float]] = _DEFAULT_TANAGER_FWHM_NM,
+) -> Union[xr.DataArray, xr.Dataset]:
+    """Spectrally degrade a Tanager scene to simulate a reference sensor.
+
+    Convolves the input scene's reflectance from Tanager's 426 native bands
+    onto ``target_centers`` using :class:`spectral.BandResampler` (Gaussian
+    overlap integration). Pattern follows :func:`tanager.endmembers.resample_library`
+    but operates on multi-pixel scenes (DataArray with ``(wavelength, y, x)``
+    dims, or Dataset with one or more wavelength-bearing variables).
+
+    Args:
+        scene: Source Tanager scene. Either an :class:`xr.DataArray` with a
+            ``wavelength`` dim, or an :class:`xr.Dataset` whose data variables
+            optionally carry a ``wavelength`` dim. Variables without a
+            ``wavelength`` dim are passed through unchanged.
+        target_centers: 1D array of target band centres in nanometres
+            (e.g. ``EMIT_SENSOR`` 285 wavelengths).
+        target_fwhm: Target sensor FWHM in nanometres. Scalar broadcasts to
+            every target band, or a per-band 1D array matching
+            ``target_centers``.
+        sensor_name: Human-readable label written to the output's
+            ``sensor_name`` attribute (e.g. ``"EMIT"``, ``"PRISMA"``,
+            ``"Sentinel-2"``).
+        source_fwhm: Source (Tanager) FWHM in nanometres. Defaults to
+            ``5.5`` nm — the Phase 2 mean across Tanager's 5.20-6.81 nm
+            per-band range. Pass the per-band ``coords["fwhm"]`` array when
+            available for higher accuracy.
+
+    Returns:
+        Same xarray container type as ``scene`` with:
+
+        * ``wavelength`` coord replaced by ``target_centers`` (float32).
+        * Reflectance clipped to ``[0, 1]``.
+        * Spatial / non-wavelength coordinates preserved.
+        * Attributes: original ``attrs`` plus ``sensor_name`` and
+          ``target_fwhm_nm`` (scalar when ``target_fwhm`` was scalar; a
+          ``(min, max)`` tuple when it was a per-band array).
+
+    Raises:
+        ValueError: If ``target_centers`` is not a non-empty 1D array, or
+            if ``scene`` (DataArray) has no ``wavelength`` dim.
+    """
+    target_centers_arr = np.asarray(target_centers, dtype=np.float64).ravel()
+    if target_centers_arr.ndim != 1 or target_centers_arr.size == 0:
+        raise ValueError("target_centers must be a non-empty 1D array")
+
+    if isinstance(scene, xr.Dataset):
+        return _simulate_sensor_dataset(
+            scene,
+            target_centers_arr,
+            target_fwhm,
+            sensor_name,
+            source_fwhm,
+        )
+    return _simulate_sensor_dataarray(
+        scene,
+        target_centers_arr,
+        target_fwhm,
+        sensor_name,
+        source_fwhm,
+    )
+
+
+def _simulate_sensor_dataset(
+    scene: xr.Dataset,
+    target_centers: np.ndarray,
+    target_fwhm: Union[float, np.ndarray, Sequence[float]],
+    sensor_name: str,
+    source_fwhm: Union[float, np.ndarray, Sequence[float]],
+) -> xr.Dataset:
+    """Apply :func:`simulate_sensor` to every wavelength-bearing variable."""
+    new_vars: dict[str, xr.DataArray] = {}
+    for var_name, var in scene.data_vars.items():
+        if "wavelength" in var.dims:
+            new_vars[var_name] = _simulate_sensor_dataarray(
+                var, target_centers, target_fwhm, sensor_name, source_fwhm,
+            )
+        else:
+            new_vars[var_name] = var
+
+    # Carry forward non-wavelength coords (y, x, time, ...). The new
+    # wavelength coord is contributed by each resampled DataArray.
+    extra_coords = {
+        name: coord
+        for name, coord in scene.coords.items()
+        if "wavelength" not in coord.dims and name != "wavelength"
+    }
+
+    target_fwhm_attr = _format_target_fwhm_attr(target_fwhm, target_centers.size)
+    out_attrs = {
+        **scene.attrs,
+        "sensor_name": sensor_name,
+        "target_fwhm_nm": target_fwhm_attr,
+    }
+
+    return xr.Dataset(new_vars, coords=extra_coords, attrs=out_attrs)
+
+
+def _simulate_sensor_dataarray(
+    da: xr.DataArray,
+    target_centers: np.ndarray,
+    target_fwhm: Union[float, np.ndarray, Sequence[float]],
+    sensor_name: str,
+    source_fwhm: Union[float, np.ndarray, Sequence[float]],
+) -> xr.DataArray:
+    """Resample a single DataArray onto ``target_centers``."""
+    if "wavelength" not in da.dims:
+        raise ValueError(
+            f"scene DataArray must have a 'wavelength' dim, got dims={da.dims}"
+        )
+    if "wavelength" not in da.coords:
+        raise ValueError("scene DataArray must have a 'wavelength' coordinate")
+
+    source_centers = np.asarray(da.coords["wavelength"].values, dtype=np.float64)
+    n_source = source_centers.size
+    n_target = target_centers.size
+
+    fwhm_target = np.broadcast_to(
+        np.asarray(target_fwhm, dtype=np.float64), (n_target,),
+    ).copy()
+    fwhm_source = np.broadcast_to(
+        np.asarray(source_fwhm, dtype=np.float64), (n_source,),
+    ).copy()
+
+    from spectral import BandResampler  # heavy dep — defer import
+
+    resampler = BandResampler(
+        centers1=source_centers,
+        centers2=target_centers,
+        fwhm1=fwhm_source,
+        fwhm2=fwhm_target,
+    )
+
+    # Move wavelength to the trailing axis so we can flatten everything else
+    # into rows of length n_source and resample row-by-row.
+    other_dims = tuple(d for d in da.dims if d != "wavelength")
+    da_trans = da.transpose(*other_dims, "wavelength")
+    arr = np.asarray(da_trans.values, dtype=np.float64)
+
+    other_shape = arr.shape[:-1]
+    flat = np.nan_to_num(arr.reshape(-1, n_source), nan=0.0)
+
+    out_flat = np.empty((flat.shape[0], n_target), dtype=np.float32)
+    for i in range(flat.shape[0]):
+        resampled = np.asarray(resampler(flat[i]), dtype=np.float32)
+        # BandResampler emits NaN for any target band with no source overlap;
+        # treat those as 0 so reflectance bounds hold downstream.
+        resampled = np.where(np.isnan(resampled), np.float32(0.0), resampled)
+        out_flat[i] = resampled
+    out_flat = np.clip(out_flat, _REFLECTANCE_MIN, _REFLECTANCE_MAX)
+
+    out = out_flat.reshape((*other_shape, n_target))
+
+    new_coords: dict[str, Any] = {}
+    for d in other_dims:
+        if d in da_trans.coords:
+            new_coords[d] = da_trans.coords[d]
+    new_coords["wavelength"] = target_centers.astype(np.float32)
+
+    target_fwhm_attr = _format_target_fwhm_attr(target_fwhm, n_target)
+    new_attrs = {
+        **da.attrs,
+        "sensor_name": sensor_name,
+        "target_fwhm_nm": target_fwhm_attr,
+    }
+
+    out_da = xr.DataArray(
+        out,
+        dims=(*other_dims, "wavelength"),
+        coords=new_coords,
+        attrs=new_attrs,
+        name=da.name,
+    )
+    # Restore the caller's original axis order for ergonomic chaining.
+    return out_da.transpose(*da.dims)
+
+
+def _format_target_fwhm_attr(
+    target_fwhm: Union[float, np.ndarray, Sequence[float]],
+    n_target: int,
+) -> Union[float, tuple[float, float]]:
+    """Return a JSON/NetCDF-friendly summary of the target FWHM input."""
+    arr = np.asarray(target_fwhm, dtype=np.float64).ravel()
+    if arr.size == 1:
+        return float(arr[0])
+    return (float(arr.min()), float(arr.max()))
+
+
 def compare_sensors(
     tanager_result: _ArrayLike,
     reference_result: _ArrayLike,

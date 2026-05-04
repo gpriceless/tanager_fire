@@ -158,6 +158,179 @@ class TestCompareSensors:
 
 
 # ---------------------------------------------------------------------------
+# simulate_sensor — spectral degradation onto reference sensor grids
+# ---------------------------------------------------------------------------
+
+
+class TestSimulateSensor:
+    """Tests for :func:`tanager.validation.simulate_sensor`.
+
+    Exercises EMIT/PRISMA/Sentinel-2 simulations on the synthetic 426-band
+    Tanager fixture, plus DataArray vs Dataset handling, FWHM broadcasting,
+    coordinate preservation, and attribute provenance.
+    """
+
+    @staticmethod
+    def _emit_centers() -> np.ndarray:
+        # EMIT_SENSOR: 285 bands, 381-2493 nm, ~7.4 nm spacing.
+        return np.linspace(381.0, 2493.0, 285)
+
+    @staticmethod
+    def _prisma_centers() -> np.ndarray:
+        # PRISMA_SENSOR: 239 bands, 400-2505 nm, ~12 nm spacing.
+        return np.linspace(400.0, 2505.0, 239)
+
+    @staticmethod
+    def _sentinel2_centers() -> np.ndarray:
+        # SENTINEL2_BANDS: 10 bands relevant to vegetation / burn analysis.
+        return np.array(
+            [490, 560, 665, 705, 740, 783, 842, 865, 1610, 2190],
+            dtype=np.float64,
+        )
+
+    @staticmethod
+    def _sentinel2_fwhms() -> np.ndarray:
+        return np.array(
+            [65, 35, 30, 15, 15, 20, 115, 20, 90, 180], dtype=np.float64,
+        )
+
+    def test_output_dimensions_emit(self, synthetic_tanager_dataset):
+        target = self._emit_centers()
+        out = validation.simulate_sensor(
+            synthetic_tanager_dataset["reflectance"], target, 8.5, "EMIT",
+        )
+        assert out.sizes["wavelength"] == 285
+        assert out.sizes["y"] == synthetic_tanager_dataset.sizes["y"]
+        assert out.sizes["x"] == synthetic_tanager_dataset.sizes["x"]
+
+    def test_output_dimensions_prisma(self, synthetic_tanager_dataset):
+        target = self._prisma_centers()
+        out = validation.simulate_sensor(
+            synthetic_tanager_dataset["reflectance"], target, 12.0, "PRISMA",
+        )
+        assert out.sizes["wavelength"] == 239
+
+    def test_output_dimensions_sentinel2(self, synthetic_tanager_dataset):
+        target = self._sentinel2_centers()
+        fwhms = self._sentinel2_fwhms()
+        out = validation.simulate_sensor(
+            synthetic_tanager_dataset["reflectance"], target, fwhms, "Sentinel-2",
+        )
+        assert out.sizes["wavelength"] == 10
+
+    def test_reflectance_bounds(self, synthetic_tanager_dataset):
+        target = self._emit_centers()
+        out = validation.simulate_sensor(
+            synthetic_tanager_dataset["reflectance"], target, 8.5, "EMIT",
+        )
+        vals = out.values
+        assert not np.isnan(vals).any()
+        assert float(vals.min()) >= 0.0
+        assert float(vals.max()) <= 1.0
+
+    def test_fwhm_scalar_broadcast(self, synthetic_tanager_dataset):
+        target = self._emit_centers()
+        out = validation.simulate_sensor(
+            synthetic_tanager_dataset["reflectance"], target, 8.5, "EMIT",
+        )
+        assert out.attrs["target_fwhm_nm"] == pytest.approx(8.5)
+
+    def test_fwhm_array(self, synthetic_tanager_dataset):
+        target = self._emit_centers()
+        per_band = np.full(target.shape, 7.4)
+        per_band[0] = 6.0
+        per_band[-1] = 9.0
+        out = validation.simulate_sensor(
+            synthetic_tanager_dataset["reflectance"], target, per_band, "EMIT",
+        )
+        attr = out.attrs["target_fwhm_nm"]
+        assert isinstance(attr, tuple)
+        assert attr[0] == pytest.approx(6.0)
+        assert attr[1] == pytest.approx(9.0)
+
+    def test_spatial_coords_preserved(self, synthetic_tanager_dataset):
+        target = self._sentinel2_centers()
+        out = validation.simulate_sensor(
+            synthetic_tanager_dataset["reflectance"],
+            target,
+            self._sentinel2_fwhms(),
+            "Sentinel-2",
+        )
+        np.testing.assert_array_equal(
+            out.coords["y"].values,
+            synthetic_tanager_dataset.coords["y"].values,
+        )
+        np.testing.assert_array_equal(
+            out.coords["x"].values,
+            synthetic_tanager_dataset.coords["x"].values,
+        )
+
+    def test_wavelength_coord_replaced(self, synthetic_tanager_dataset):
+        target = self._sentinel2_centers()
+        out = validation.simulate_sensor(
+            synthetic_tanager_dataset["reflectance"],
+            target,
+            self._sentinel2_fwhms(),
+            "Sentinel-2",
+        )
+        np.testing.assert_allclose(
+            out.coords["wavelength"].values,
+            target.astype(np.float32),
+        )
+
+    def test_dataset_handling(self, synthetic_tanager_dataset):
+        # Add a non-wavelength variable that should pass through unchanged.
+        ds = synthetic_tanager_dataset.copy()
+        ny = ds.sizes["y"]
+        nx = ds.sizes["x"]
+        ds["mask"] = (("y", "x"), np.ones((ny, nx), dtype=np.uint8))
+
+        target = self._sentinel2_centers()
+        out = validation.simulate_sensor(
+            ds, target, self._sentinel2_fwhms(), "Sentinel-2",
+        )
+
+        assert isinstance(out, xr.Dataset)
+        assert out.sizes["wavelength"] == 10
+        assert out["reflectance"].sizes["wavelength"] == 10
+        # mask has no wavelength dim and must be carried through unchanged.
+        assert "wavelength" not in out["mask"].dims
+        np.testing.assert_array_equal(out["mask"].values, ds["mask"].values)
+        np.testing.assert_allclose(
+            out.coords["wavelength"].values,
+            target.astype(np.float32),
+        )
+
+    def test_attrs_set(self, synthetic_tanager_dataset):
+        target = self._emit_centers()
+        out = validation.simulate_sensor(
+            synthetic_tanager_dataset["reflectance"], target, 8.5, "EMIT",
+        )
+        assert out.attrs["sensor_name"] == "EMIT"
+        assert "target_fwhm_nm" in out.attrs
+
+    def test_public_api_export(self):
+        import tanager
+
+        assert callable(tanager.simulate_sensor)
+        assert tanager.simulate_sensor is validation.simulate_sensor
+
+    def test_empty_target_centers_rejected(self, synthetic_tanager_dataset):
+        with pytest.raises(ValueError, match="non-empty 1D array"):
+            validation.simulate_sensor(
+                synthetic_tanager_dataset["reflectance"],
+                np.array([]),
+                8.5,
+                "EMIT",
+            )
+
+    def test_dataarray_without_wavelength_dim_rejected(self):
+        bad = xr.DataArray(np.zeros((3, 3)), dims=("y", "x"))
+        with pytest.raises(ValueError, match="'wavelength' dim"):
+            validation.simulate_sensor(bad, np.array([700.0]), 5.0, "EMIT")
+
+
+# ---------------------------------------------------------------------------
 # load_aviris3_reference
 # ---------------------------------------------------------------------------
 

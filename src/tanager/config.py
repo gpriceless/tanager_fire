@@ -37,6 +37,52 @@ SENSOR = SimpleNamespace(
 )
 
 # ---------------------------------------------------------------------------
+# Reference sensor specifications (for spectral degradation simulations)
+#
+# Used by validation.simulate_sensor() to convolve Tanager-1 native 426-band
+# spectra into the lower-resolution channels of EMIT, PRISMA, and Sentinel-2
+# for the +5 competition tie-breaker (Tanager vs reference sensor).
+#
+# Sources: research/sensor-comparison-research.md section 5.1.
+# ---------------------------------------------------------------------------
+
+EMIT_SENSOR = SimpleNamespace(
+    name="EMIT",
+    n_bands=285,
+    wavelength_min_nm=381,
+    wavelength_max_nm=2493,
+    spectral_resolution_nm=7.4,
+    fwhm_nm=8.5,
+    spatial_resolution_m=60,
+)
+
+PRISMA_SENSOR = SimpleNamespace(
+    name="PRISMA",
+    n_bands=239,
+    wavelength_min_nm=400,
+    wavelength_max_nm=2505,
+    spectral_resolution_nm=12,
+    fwhm_nm=12,
+    spatial_resolution_m=30,
+)
+
+# Sentinel-2 MSI (MultiSpectral Instrument) — 10 bands relevant to vegetation /
+# burn analysis (visible, red-edge, NIR, SWIR). FWHM is the published
+# bandwidth; gsd_m records the native ground sample distance per band.
+SENTINEL2_BANDS: dict[str, dict[str, float]] = {
+    "B2":  {"center_nm": 490,  "fwhm_nm": 65,  "gsd_m": 10},
+    "B3":  {"center_nm": 560,  "fwhm_nm": 35,  "gsd_m": 10},
+    "B4":  {"center_nm": 665,  "fwhm_nm": 30,  "gsd_m": 10},
+    "B5":  {"center_nm": 705,  "fwhm_nm": 15,  "gsd_m": 20},
+    "B6":  {"center_nm": 740,  "fwhm_nm": 15,  "gsd_m": 20},
+    "B7":  {"center_nm": 783,  "fwhm_nm": 20,  "gsd_m": 20},
+    "B8":  {"center_nm": 842,  "fwhm_nm": 115, "gsd_m": 10},
+    "B8A": {"center_nm": 865,  "fwhm_nm": 20,  "gsd_m": 20},
+    "B11": {"center_nm": 1610, "fwhm_nm": 90,  "gsd_m": 20},
+    "B12": {"center_nm": 2190, "fwhm_nm": 180, "gsd_m": 20},
+}
+
+# ---------------------------------------------------------------------------
 # Bad band ranges
 # Each tuple is (low_nm, high_nm) — inclusive on both ends.
 # Bands whose centre wavelength falls within any range should be excluded

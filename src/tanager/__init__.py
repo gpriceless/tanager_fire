@@ -70,6 +70,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     # validation -----------------------------------------------------------
     "compute_accuracy": "validation",
     "compare_sensors": "validation",
+    "simulate_sensor": "validation",
     "load_aviris3_reference": "validation",
     "load_barc_reference": "validation",
 }
