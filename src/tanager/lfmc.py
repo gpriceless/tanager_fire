@@ -4,10 +4,14 @@ This module estimates per-pixel live fuel moisture from hyperspectral
 reflectance using two complementary approaches:
 
 * **Tier 1 — Spectral indices** (Quan et al. 2021):
-  Eight water-sensitive indices computed by :func:`compute_lfmc_indices`,
-  including SAI (Spectral Absorption Index) at 970, 1200, and 1660 nm,
-  three NDWI variants (1240, 1640, 2130 nm), the Water Index WI = R900/R970,
-  and continuum-removal band depths at the four water-absorption wavelengths.
+  Water-sensitive indices computed by :func:`compute_lfmc_indices`,
+  including SAI (Spectral Absorption Index) at 970 and 1200 nm, three NDWI
+  variants (1240, 1640, 2130 nm), the Water Index WI = R900/R970, and
+  continuum-removal band depths at four water-absorption wavelengths.
+  SAI1660 was dropped on Tanager-1 — 1660 nm sits in the 1530-1790 nm
+  atmospheric water-absorption window where surface reflectance collapses
+  to ~0.004 (yielding all-zero SAI on real scenes); the 1700 nm hull-based
+  CR_depth recovers the same O-H overtone signal more robustly.
   Indices are interpretable proxies for canopy water content but do not
   yield an absolute LFMC percent on their own.
 
@@ -310,12 +314,18 @@ def _continuum_removal_depths(
 
 
 def compute_lfmc_indices(scene: Any) -> xr.Dataset:
-    """Compute eight water-sensitive indices for an LFMC scene.
+    """Compute the water-sensitive index stack for an LFMC scene.
 
     The returned Dataset contains:
 
-    * ``SAI970``, ``SAI1200``, ``SAI1660`` — Spectral Absorption Indices at
-      the three liquid-water absorption features (Quan et al. 2021).
+    * ``SAI970``, ``SAI1200`` — Spectral Absorption Indices at the two
+      liquid-water absorption features that survive Tanager-1's atmospheric
+      correction (Quan et al. 2021). SAI1660 was dropped: 1660 nm sits in
+      the 1530–1790 nm atmospheric water-absorption window where Tanager
+      surface reflectance collapses to ~0.004, yielding all-zero SAI on
+      real scenes (0–491 non-zero pixels of 65,536 in validation runs).
+      The 1700 nm hull-based depth in ``CR_depths`` recovers the same
+      O-H overtone signal more robustly.
     * ``NDWI_1240``, ``NDWI_1640``, ``NDWI_2130`` — three NDWI variants
       (Gao 1996 et al.) using R860 as the NIR reference: each is computed
       via the epsilon-guarded normalized difference from
@@ -381,10 +391,14 @@ def compute_lfmc_indices(scene: Any) -> xr.Dataset:
 
     # SAI indices — shoulder windows chosen to bracket each absorption feature
     # with continuum anchors that fall outside the feature wing.
+    # SAI1660 (1530-1790 nm) is intentionally absent: it sits inside the
+    # atmospheric water-absorption window where Tanager surface reflectance
+    # collapses to ~0.004, producing dead-zero output (0-491 non-zero
+    # pixels per scene). CR_depths at 1700 nm recovers the O-H overtone
+    # signal via the hull-based approach instead.
     sai_targets = (
         ("SAI970", 970.0, 850.0, 1100.0),
         ("SAI1200", 1200.0, 1080.0, 1320.0),
-        ("SAI1660", 1660.0, 1530.0, 1790.0),
     )
     for name, target, left, right in sai_targets:
         out_vars[name] = _sai_map(refl, target, left, right)

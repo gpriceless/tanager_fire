@@ -5,7 +5,7 @@ relationships exercise:
 
 * :func:`tanager.lfmc._compute_sai` — Spectral Absorption Index against
   hand-built absorption features.
-* :func:`tanager.lfmc.compute_lfmc_indices` — full eight-index Dataset over a
+* :func:`tanager.lfmc.compute_lfmc_indices` — full water-index Dataset over a
   3-D synthetic cube.
 * :func:`tanager.lfmc.train_lfmc_plsr` — PLSR with strong synthetic moisture
   signal; verifies R² > 0 and VIP scores peak near water-absorption bands.
@@ -207,14 +207,18 @@ class TestComputeLFMCIndices:
         spec[wl > 2200.0] = 0.10
         return spec.astype(np.float32)
 
-    def test_eight_indices_present_with_correct_dims(self):
+    def test_expected_indices_present_with_correct_dims(self):
         wl = np.linspace(380.0, 2500.0, 426).astype(np.float32)
         scene = _make_cube(wl, self._full_spectrum(wl))
         indices = compute_lfmc_indices(scene)
 
-        for name in ("SAI970", "SAI1200", "SAI1660", "NDWI_1240", "NDWI_1640", "NDWI_2130", "WI"):
+        # SAI1660 is intentionally absent — it sits in the 1530-1790 nm
+        # atmospheric water-absorption window where Tanager surface reflectance
+        # collapses to ~0.004 (CR_depths at 1700 nm covers this region instead).
+        for name in ("SAI970", "SAI1200", "NDWI_1240", "NDWI_1640", "NDWI_2130", "WI"):
             assert name in indices.data_vars
             assert indices[name].dims == ("y", "x")
+        assert "SAI1660" not in indices.data_vars
         assert "CR_depths" in indices.data_vars
         assert indices["CR_depths"].dims == ("cr_target", "y", "x")
 
