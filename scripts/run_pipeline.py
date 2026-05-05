@@ -262,14 +262,14 @@ def stage_indices(scene: xr.Dataset, scene_id: str, out_dir: Path) -> tuple[str,
 
 @_stage("lfmc_indices")
 def stage_lfmc_indices(scene: xr.Dataset, scene_id: str, out_dir: Path,
-                       crop: int = 256) -> tuple[str, list[Path]]:
-    """Compute LFMC indices on a center crop.
+                       crop: int | None = None) -> tuple[str, list[Path]]:
+    """Compute LFMC indices on the full scene (or a center crop when requested).
 
-    `compute_lfmc_indices` includes a per-pixel convex-hull continuum-removal
-    pass implemented in Python via ``xr.apply_ufunc(vectorize=True)``. On the
-    full ~564k-pixel scene this exceeds the heartbeat budget; a center crop
-    keeps runtime bounded while still exercising every code path. The crop
-    size is captured in the report so the gap is visible.
+    The underlying ``continuum_removal`` was vectorized (monotone-chain core +
+    joblib chunked parallelism, commit 06d5671) so the full ~564k-pixel scene
+    now fits within the heartbeat budget. Pass an explicit ``crop`` for unit
+    tests or local debugging; production runs use ``crop=None`` (full scene)
+    so the LFMC products cover the burn footprint, not a 7.7×7.7 km tile.
 
     `compute_lfmc_indices` also currently demands a Dataset with a
     ``reflectance`` variable (or a bare DataArray); we pass the
@@ -278,13 +278,17 @@ def stage_lfmc_indices(scene: xr.Dataset, scene_id: str, out_dir: Path,
     """
     primary = scene.attrs.get("data_var") or "surface_reflectance"
     refl = scene[primary]
-    ny, nx = int(refl.sizes["y"]), int(refl.sizes["x"])
-    y0 = max(0, ny // 2 - crop // 2)
-    x0 = max(0, nx // 2 - crop // 2)
-    refl_crop = refl.isel(y=slice(y0, y0 + crop), x=slice(x0, x0 + crop))
-    log.info("LFMC: cropped to y=[%d,%d), x=[%d,%d)",
-             y0, y0 + crop, x0, x0 + crop)
-    indices = compute_lfmc_indices(refl_crop)
+    if crop is not None:
+        ny, nx = int(refl.sizes["y"]), int(refl.sizes["x"])
+        y0 = max(0, ny // 2 - crop // 2)
+        x0 = max(0, nx // 2 - crop // 2)
+        refl = refl.isel(y=slice(y0, y0 + crop), x=slice(x0, x0 + crop))
+        log.info("LFMC: cropped to y=[%d,%d), x=[%d,%d)",
+                 y0, y0 + crop, x0, x0 + crop)
+    else:
+        log.info("LFMC: full scene y=%d x=%d",
+                 int(refl.sizes["y"]), int(refl.sizes["x"]))
+    indices = compute_lfmc_indices(refl)
     crs = _crs_for(scene)
     stats_lines: list[str] = []
     artifacts: list[Path] = []
@@ -767,12 +771,12 @@ def write_report(scene_reports: list[SceneReport], multi_stages: list[StageResul
         "run; once a model is trained the predict_lfmc stage can be slotted in."
     )
     lines.append(
-        "- **`compute_lfmc_indices` is per-pixel-Python slow.** The "
-        "continuum-removal pass uses `xr.apply_ufunc(vectorize=True)`, which "
-        "iterates over every pixel in Python. The full-scene run was killed "
-        "after >4 minutes; this stage was exercised on a 256x256 center crop "
-        "to keep the heartbeat bounded. A vectorized hull or chunked dask "
-        "path is needed before full-scene LFMC products are practical."
+        "- **`compute_lfmc_indices` runs on the full scene.** The "
+        "continuum-removal pass is now vectorized (monotone-chain hull core "
+        "with joblib chunked parallelism, ~25k pixels per chunk) so the full "
+        "~564k-pixel scene fits within the heartbeat budget. The earlier "
+        "256x256 center-crop workaround has been removed; LFMC products now "
+        "cover the burn footprint."
     )
     lines.append(
         "- **`compute_lfmc_indices` requires `reflectance` variable name.** "
