@@ -451,10 +451,14 @@ def stage_severity(fractions: xr.Dataset, scene_id: str, out_dir: Path) -> tuple
     train = train_severity_model(fractions, synthetic_cbi, n_estimators=50, cv_folds=3)
     out = predict_severity(fractions, train)
 
+    # Flag the synthetic ground-truth lineage on the CBI output so downstream
+    # consumers do not mistake it for a validated CBI product.
+    out["cbi_map"].attrs["ground_truth_source"] = "synthetic (3 x char)"
+
     crs = "EPSG:32611"
     artifacts = []
     artifacts.append(_write_geotiff(out["cbi_map"], out_dir / f"{scene_id}_cbi.tif", crs))
-    artifacts.append(_write_geotiff(out["severity_map"], out_dir / f"{scene_id}_severity.tif", crs))
+    artifacts.append(_write_geotiff(out["severity_map"], out_dir / f"{scene_id}_barc_severity.tif", crs))
     try:
         artifacts.append(_quicklook_png(
             out["cbi_map"], out_dir / f"{scene_id}_cbi.png",
@@ -463,8 +467,11 @@ def stage_severity(fractions: xr.Dataset, scene_id: str, out_dir: Path) -> tuple
     except Exception:
         pass
     detail = (
-        f"trained RF (synthetic CBI) cv_r2={train['r2']:.3f} cv_rmse={train['rmse']:.3f}; "
-        f"predicted CBI mean={float(np.nanmean(out['cbi_map'].values)):.3f}"
+        f"trained RF (synthetic CBI, ground_truth_source='synthetic (3 x char)') "
+        f"cv_r2={train['r2']:.3f} cv_rmse={train['rmse']:.3f}; "
+        f"predicted CBI (continuous, 0-3 per Key & Benson 2006) mean="
+        f"{float(np.nanmean(out['cbi_map'].values)):.3f}; "
+        f"BARC severity classes (categorical, 0-4) written to *_barc_severity.tif"
     )
     return detail, artifacts
 
@@ -761,9 +768,20 @@ def write_report(scene_reports: list[SceneReport], multi_stages: list[StageResul
         "not for publishable severity products."
     )
     lines.append(
-        "- **No CBI ground truth.** The burn-severity model was trained on a "
-        "synthetic CBI proxy (`3 * char`) so the train/predict path is "
-        "exercised end-to-end. Real CBI plots will replace this once available."
+        "- **No CBI ground truth — outputs are synthetic.** The burn-severity "
+        "model was trained on a synthetic CBI proxy (`3 * char`) so the "
+        "train/predict path is exercised end-to-end. CBI outputs are tagged "
+        "`ground_truth_source = 'synthetic (3 x char)'` and must NOT be treated "
+        "as validated CBI. Swap in real RAVG or field CBI as ground truth once "
+        "available."
+    )
+    lines.append(
+        "- **CBI vs BARC are distinct products.** `*_cbi.tif` is the continuous "
+        "Composite Burn Index (0-3 scale, Key & Benson 2006); `*_barc_severity.tif` "
+        "is the 5-class BARC severity map (categorical, 0-4: unburned, low, "
+        "moderate-low, moderate-high, high). Class 4 does not exist in CBI. "
+        "Metadata attributes `scale` and `classification_system` on the "
+        "DataArrays disambiguate the two."
     )
     lines.append(
         "- **LFMC predict_lfmc not exercised.** A trained PLSR model artifact "

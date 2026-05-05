@@ -365,17 +365,24 @@ def predict_severity(
         dims=out_dims,
         coords=out_coords,
         name="cbi",
-        attrs={"long_name": "composite_burn_index", "valid_range": [_CBI_MIN, _CBI_MAX]},
+        attrs={
+            "long_name": "composite_burn_index",
+            "valid_range": [_CBI_MIN, _CBI_MAX],
+            "scale": "CBI (0-3)",
+            "reference": "Key & Benson (2006)",
+        },
     )
     severity_map = xr.DataArray(
         severity_flat.reshape(spatial_shape),
         dims=out_dims,
         coords=out_coords,
-        name="severity",
+        name="barc_severity",
         attrs={
             "long_name": "barc_severity_class",
+            "classification_system": "BARC",
             "class_codes": "0=unburned, 1=low, 2=moderate-low, 3=moderate-high, 4=high",
             "thresholds": "0.10, 1.00, 1.50, 2.25",
+            "reference": "Key & Benson (2006)",
         },
     )
 
