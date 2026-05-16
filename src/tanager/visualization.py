@@ -180,38 +180,179 @@ PRODUCT_STYLES: Dict[str, ProductStyle] = {
 
 
 def plot_map(
-    data: xr.DataArray,
-    *,
-    ax: Optional["Axes"] = None,
+    da: xr.DataArray,
+    title: str = "",
     cmap: Optional[str] = None,
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
-    title: Optional[str] = None,
-    **kwargs: Any,
+    product_name: Optional[str] = None,
+    publication: bool = False,
+    figsize: Tuple[float, float] = (10, 8),
+    basemap: bool = False,
+    ax: Optional["Axes"] = None,
 ) -> "Figure":
-    """Render a single-band or RGB raster as a georeferenced map.
+    """Render a single-band raster as a georeferenced map with UTM axes.
 
     Parameters
     ----------
-    data:
-        2-D or 3-D (band, y, x) DataArray to render.
-    ax:
-        Existing matplotlib Axes to draw into.  A new figure is created when
-        *ax* is ``None``.
-    cmap:
-        Colormap name passed to ``imshow``.
-    vmin, vmax:
-        Colour scale limits.
+    da:
+        2-D DataArray with ``x`` (easting) and ``y`` (northing) coordinates in
+        metres (UTM).
     title:
-        Figure title.
-    **kwargs:
-        Additional keyword arguments forwarded to the underlying imshow call.
+        Figure title string.
+    cmap:
+        Colormap name.  When *None* and *product_name* is given, the value from
+        :data:`PRODUCT_STYLES` is used.
+    vmin, vmax:
+        Colour scale limits.  When *None* and *product_name* is given, the
+        values from :data:`PRODUCT_STYLES` are used.
+    product_name:
+        Key into :data:`PRODUCT_STYLES` (e.g. ``"nbr"``).  Provides default
+        *cmap*, *vmin*, *vmax*, and colorbar label when explicit parameters are
+        not supplied.
+    publication:
+        When ``True`` use DPI 300 and larger font sizes suitable for figures
+        destined for publication.
+    figsize:
+        ``(width, height)`` in inches for the new figure.  Ignored when *ax*
+        is provided.
+    basemap:
+        When ``True`` call :func:`add_basemap` after rendering the raster.  If
+        :func:`add_basemap` raises :exc:`NotImplementedError` the error is
+        silently swallowed (the basemap is still a stub).
+    ax:
+        Existing matplotlib ``Axes`` to draw into.  A new figure is created
+        when *ax* is ``None``.
 
     Returns
     -------
     matplotlib.figure.Figure
     """
-    raise NotImplementedError
+    import copy as _copy
+
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
+
+    # --- resolve style from PRODUCT_STYLES when product_name provided ----------
+    style_label: Optional[str] = None
+    if product_name is not None:
+        style = PRODUCT_STYLES.get(product_name)
+        if style is not None:
+            if cmap is None:
+                cmap = style.cmap
+            if vmin is None:
+                vmin = style.vmin
+            if vmax is None:
+                vmax = style.vmax
+            style_label = style.label
+        else:
+            logger.warning(
+                "product_name %r not found in PRODUCT_STYLES; ignoring", product_name
+            )
+
+    # --- figure / axes setup ---------------------------------------------------
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.get_figure()
+
+    # --- publication font sizes ------------------------------------------------
+    title_fontsize = 14
+    label_fontsize = 12
+    tick_labelsize = 10
+    if publication:
+        title_fontsize = 18
+        label_fontsize = 14
+        tick_labelsize = 12
+
+    # --- extract coordinate bounds ---------------------------------------------
+    # Support both 'x'/'y' and 'easting'/'northing' dimension names, falling
+    # back gracefully to pixel-index axes when no recognised coordinate is found.
+    x_coord: Optional[np.ndarray] = None
+    y_coord: Optional[np.ndarray] = None
+    for name in ("x", "easting", "lon", "longitude"):
+        if name in da.coords:
+            x_coord = da.coords[name].values
+            break
+    for name in ("y", "northing", "lat", "latitude"):
+        if name in da.coords:
+            y_coord = da.coords[name].values
+            break
+
+    if x_coord is not None and y_coord is not None:
+        xmin = float(x_coord.min())
+        xmax = float(x_coord.max())
+        # Half-pixel expansion so the extent aligns with cell edges.
+        dx = (xmax - xmin) / max(len(x_coord) - 1, 1) if len(x_coord) > 1 else 1.0
+        ymin = float(y_coord.min())
+        ymax = float(y_coord.max())
+        dy = (ymax - ymin) / max(len(y_coord) - 1, 1) if len(y_coord) > 1 else 1.0
+        extent: Optional[list] = [
+            xmin - dx / 2,
+            xmax + dx / 2,
+            ymin - dy / 2,
+            ymax + dy / 2,
+        ]
+        use_geo_axes = True
+    else:
+        extent = None
+        use_geo_axes = False
+
+    # --- handle NaN values via masked array ------------------------------------
+    arr = np.ma.masked_invalid(da.values)
+
+    # Build a copy of the colormap with NaN/masked pixels rendered transparent.
+    if cmap is not None:
+        cm_obj = _copy.copy(plt.get_cmap(cmap))
+    else:
+        cm_obj = _copy.copy(plt.get_cmap("viridis"))
+    cm_obj.set_bad(color="white", alpha=0.0)
+
+    # --- render raster ---------------------------------------------------------
+    im = ax.imshow(
+        arr,
+        extent=extent,
+        origin="lower",
+        cmap=cm_obj,
+        vmin=vmin,
+        vmax=vmax,
+        interpolation="nearest",
+    )
+
+    # --- format axes -----------------------------------------------------------
+    if use_geo_axes:
+        km_formatter = FuncFormatter(lambda v, _: f"{v / 1000:.0f}")
+        ax.xaxis.set_major_formatter(km_formatter)
+        ax.yaxis.set_major_formatter(km_formatter)
+        ax.set_xlabel("Easting (km)", fontsize=label_fontsize)
+        ax.set_ylabel("Northing (km)", fontsize=label_fontsize)
+        ax.tick_params(axis="both", labelsize=tick_labelsize)
+
+    # --- title -----------------------------------------------------------------
+    if title:
+        ax.set_title(title, fontsize=title_fontsize)
+
+    # --- colorbar --------------------------------------------------------------
+    cb_label = style_label if style_label is not None else (product_name or "")
+    cbar = fig.colorbar(im, ax=ax)
+    if cb_label:
+        cbar.set_label(cb_label, fontsize=label_fontsize)
+    cbar.ax.tick_params(labelsize=tick_labelsize)
+
+    # --- optional basemap overlay ----------------------------------------------
+    if basemap:
+        try:
+            add_basemap(ax)
+        except NotImplementedError:
+            logger.debug(
+                "add_basemap is not yet implemented; skipping basemap overlay"
+            )
+
+    # --- publication DPI -------------------------------------------------------
+    if publication:
+        fig.set_dpi(300)
+
+    return fig
 
 
 def plot_before_after(
