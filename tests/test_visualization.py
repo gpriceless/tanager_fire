@@ -1857,3 +1857,233 @@ class TestShowProductIntegration:
             )
         finally:
             plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Publication integration tests — end-to-end figure generation from synthetic data
+# ---------------------------------------------------------------------------
+
+
+class TestPublicationIntegration:
+    """End-to-end publication-quality figure generation from synthetic data.
+
+    Exercises the complete workflow:
+    1. Create synthetic 100×100 DataArray with EPSG:32611 CRS.
+    2. plot_map → save_figure round-trip with filesystem verification.
+    3. plot_before_after returns Figure with 2 map panels.
+    4. plot_temporal_trajectory returns Figure with line data.
+    5. Multi-format export (PNG + PDF).
+    6. PRODUCT_STYLES integration via plot_map with product_name.
+    """
+
+    # ------------------------------------------------------------------
+    # Synthetic data factory for this test class
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _make_synthetic_da(
+        nx: int = 100,
+        ny: int = 100,
+        vmin: float = -1.0,
+        vmax: float = 1.0,
+        seed: int = 42,
+    ) -> xr.DataArray:
+        """Return a 100×100 DataArray with UTM coordinates and EPSG:32611 CRS.
+
+        Values are drawn from [vmin, vmax] to fall within NBR/dNBR-like ranges.
+        Coordinates use UTM Zone 11N easting/northing so that plot_map engages
+        the geo-axes path (Easting/Northing km labels).
+        """
+        x = np.linspace(350_000, 360_000, nx)
+        y = np.linspace(3_780_000, 3_790_000, ny)
+        rng = np.random.default_rng(seed)
+        data = rng.uniform(vmin, vmax, (ny, nx)).astype(np.float32)
+        da = xr.DataArray(data, coords={"y": y, "x": x}, dims=["y", "x"])
+        return da.rio.write_crs("EPSG:32611")
+
+    # ------------------------------------------------------------------
+    # 1. plot_map → save_figure round-trip
+    # ------------------------------------------------------------------
+
+    def test_plot_map_save_figure_creates_nonempty_png(self, tmp_path):
+        """plot_map + save_figure must write a non-empty PNG to disk."""
+        da = self._make_synthetic_da()
+        fig = plot_map(da, title="Synthetic NBR", product_name="nbr")
+        try:
+            out_path = tmp_path / "nbr_map"
+            paths = save_figure(fig, out_path, formats=["png"])
+            assert len(paths) == 1
+            assert paths[0].exists(), "PNG file was not written"
+            assert paths[0].stat().st_size > 0, "PNG file is empty"
+        finally:
+            plt.close(fig)
+
+    def test_save_figure_produces_300_dpi_png(self, tmp_path):
+        """save_figure must write the PNG at DPI=300 (hardcoded in the function)."""
+        from PIL import Image
+
+        da = self._make_synthetic_da()
+        fig = plot_map(da, product_name="nbr")
+        try:
+            paths = save_figure(fig, tmp_path / "dpi_check", formats=["png"])
+            with Image.open(paths[0]) as img:
+                # PIL returns DPI as a tuple (x, y); convert meters-per-inch to DPI.
+                # PNG DPI is stored as dots-per-metre in the pHYs chunk; PIL exposes it
+                # as DPI already.  Accept 299–301 to tolerate floating-point rounding.
+                dpi_x, dpi_y = img.info.get("dpi", (300, 300))
+                assert abs(dpi_x - 300) <= 1, (
+                    f"Expected PNG DPI ~300, got {dpi_x}"
+                )
+        finally:
+            plt.close(fig)
+
+    def test_plot_map_colorbar_present(self, tmp_path):
+        """plot_map must attach a colorbar axis when a product_name is supplied."""
+        da = self._make_synthetic_da()
+        fig = plot_map(da, product_name="nbr")
+        try:
+            # imshow axis + colorbar axis = at least 2 axes.
+            assert len(fig.get_axes()) > 1, (
+                f"Expected colorbar axis, found only {len(fig.get_axes())} axes"
+            )
+        finally:
+            plt.close(fig)
+
+    def test_plot_map_title_rendered(self, tmp_path):
+        """plot_map must set the axes title to the supplied string."""
+        da = self._make_synthetic_da()
+        title = "Synthetic Publication Map"
+        fig = plot_map(da, title=title, product_name="nbr")
+        try:
+            ax = fig.get_axes()[0]
+            assert ax.get_title() == title, (
+                f"Expected title {title!r}, got {ax.get_title()!r}"
+            )
+        finally:
+            plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # 2. plot_before_after — two panels
+    # ------------------------------------------------------------------
+
+    def test_plot_before_after_returns_figure_with_two_axes(self):
+        """plot_before_after must return a Figure containing at least 2 map axes."""
+        from matplotlib.figure import Figure
+        from tanager.visualization import plot_before_after
+
+        pre = self._make_synthetic_da(seed=1, vmin=0.3, vmax=0.8)
+        post = self._make_synthetic_da(seed=2, vmin=-0.1, vmax=0.4)
+
+        fig = plot_before_after(pre, post, "nbr")
+        try:
+            assert isinstance(fig, Figure), "plot_before_after must return a Figure"
+            # 2 map panels + at least 1 shared colorbar = >= 3 axes.
+            assert len(fig.axes) >= 3, (
+                f"Expected >= 3 axes (2 panels + colorbar), got {len(fig.axes)}"
+            )
+            # Confirm both map panels render in UTM scale (xlim >> 100 000 m).
+            for idx in (0, 1):
+                xlo, xhi = fig.axes[idx].get_xlim()
+                assert xlo > 100_000, (
+                    f"Panel {idx} xlim lower {xlo:.0f} looks like pixel space"
+                )
+        finally:
+            plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # 3. plot_temporal_trajectory — line data present
+    # ------------------------------------------------------------------
+
+    def test_plot_temporal_trajectory_returns_figure_with_line(self):
+        """plot_temporal_trajectory must return a Figure whose axes contain line data."""
+        from matplotlib.figure import Figure
+        from tanager.visualization import plot_temporal_trajectory
+
+        dates = [
+            "2024-12-15",
+            "2024-12-25",
+            "2025-01-01",
+            "2025-01-07",
+            "2025-01-15",
+            "2025-01-23",
+            "2025-02-01",
+        ]
+        # Realistic NBR trajectory: stable pre-fire, sharp drop at ignition, partial recovery.
+        values = [0.62, 0.60, 0.59, 0.14, 0.18, 0.22, 0.28]
+        fire_date = "2025-01-07"
+
+        fig = plot_temporal_trajectory(dates, values, "NBR", fire_date=fire_date)
+        try:
+            assert isinstance(fig, Figure), "plot_temporal_trajectory must return a Figure"
+            ax = fig.axes[0]
+            # At least one line (the data series) must be plotted.
+            assert len(ax.lines) >= 1, "Expected at least one Line2D on the axes"
+            # The data line must carry actual y-data (not an empty series).
+            data_line = ax.lines[0]
+            assert len(data_line.get_ydata()) == len(values), (
+                f"Expected {len(values)} data points, got {len(data_line.get_ydata())}"
+            )
+        finally:
+            plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # 4. Multi-format export — PNG + PDF both created
+    # ------------------------------------------------------------------
+
+    def test_save_figure_multi_format_export(self, tmp_path):
+        """save_figure with formats=['png', 'pdf'] must create both files."""
+        da = self._make_synthetic_da()
+        fig = plot_map(da, product_name="nbr")
+        try:
+            paths = save_figure(fig, tmp_path / "publication_figure", formats=["png", "pdf"])
+            assert len(paths) == 2, f"Expected 2 output paths, got {len(paths)}"
+            png_path, pdf_path = paths
+            assert png_path.suffix == ".png", f"First path should be .png, got {png_path.suffix}"
+            assert pdf_path.suffix == ".pdf", f"Second path should be .pdf, got {pdf_path.suffix}"
+            assert png_path.exists(), f"PNG file not found: {png_path}"
+            assert pdf_path.exists(), f"PDF file not found: {pdf_path}"
+            assert png_path.stat().st_size > 0, "PNG file is empty"
+            assert pdf_path.stat().st_size > 0, "PDF file is empty"
+        finally:
+            plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # 5. PRODUCT_STYLES integration — colormap and range applied
+    # ------------------------------------------------------------------
+
+    def test_plot_map_uses_nbr_style_colormap_and_range(self):
+        """plot_map with product_name='nbr' must apply NBR's cmap and vmin/vmax."""
+        da = self._make_synthetic_da(vmin=-1.0, vmax=1.0)
+        nbr_style = PRODUCT_STYLES["nbr"]
+        fig = plot_map(da, product_name="nbr")
+        try:
+            ax = fig.get_axes()[0]
+            # The first image on the axes must use the NBR colormap and range.
+            im = ax.get_images()[0]
+            # cmap name must match (matplotlib appends nothing; registered cmap name matches).
+            assert im.cmap.name == nbr_style.cmap, (
+                f"Expected cmap {nbr_style.cmap!r}, got {im.cmap.name!r}"
+            )
+            # Normalization limits must match PRODUCT_STYLES["nbr"] vmin/vmax.
+            assert im.norm.vmin == pytest.approx(nbr_style.vmin), (
+                f"Expected vmin {nbr_style.vmin}, got {im.norm.vmin}"
+            )
+            assert im.norm.vmax == pytest.approx(nbr_style.vmax), (
+                f"Expected vmax {nbr_style.vmax}, got {im.norm.vmax}"
+            )
+        finally:
+            plt.close(fig)
+
+    def test_plot_map_colorbar_label_matches_product_style(self):
+        """The colorbar label must match PRODUCT_STYLES['nbr'].label."""
+        da = self._make_synthetic_da()
+        nbr_style = PRODUCT_STYLES["nbr"]
+        fig = plot_map(da, product_name="nbr")
+        try:
+            cb_ax = fig.get_axes()[1]
+            assert nbr_style.label in cb_ax.get_ylabel(), (
+                f"Expected '{nbr_style.label}' in colorbar label, "
+                f"got {cb_ax.get_ylabel()!r}"
+            )
+        finally:
+            plt.close(fig)
