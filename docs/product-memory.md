@@ -17,8 +17,8 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 
 ## Current State
 
-**Last Updated:** 2026-04-28
-**Current Phase:** Phase 3 — Core Analysis (MESMA + LFMC) — approved, EM-enriched, ready for /run-phase
+**Last Updated:** 2026-05-10
+**Current Phase:** Phase 3 COMPLETE + all science bugs fixed. Visualization Overhaul (004-visualization-overhaul) specced, awaiting EM enrichment. Phase 4 not yet specced.
 
 ### What Exists
 | Capability | Status | Key Details |
@@ -28,17 +28,18 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 | Data Access Research | Complete | STAC catalog, HyperCoast I/O, scene inventory confirmed |
 | Project Setup | Complete | OpenSpec, memory system, pyproject.toml, editable install |
 | Data Pipeline (code) | **Complete** | 41/41 tasks, 159 tests passing. Modules: config, catalog, io, spectral, masks |
-| Core Analysis | **Ready for build** | OpenSpec 003-core-analysis approved + EM-enriched. 55 tasks, 4 waves, 5 new modules. Phase 2 remediation findings incorporated. |
-| Packaging & Submission | Not Started | Phase 4 — depends on analysis pipeline |
+| Core Analysis | **Complete** | 55/55 tasks, 334 tests passing. Modules: endmembers, unmixing, severity, lfmc, validation. Phase gate passed 2026-04-28. |
+| Science Bug Fixes | **Complete** | All 6 validation bugs (TD-7 through TD-12) resolved. dNBR temporal fix, MESMA fraction clamping, SAI1660 removed, SAI NaN fix, CBI/BARC naming fix, LFMC full-scene. |
+| Sensor Comparison | **Complete** | Spectral degradation simulation (Tanager→EMIT/PRISMA/S2) via simulate_sensor() + stage_sensor_comparison(). +5 tie-breaker. |
+| Visualization Overhaul | **Specced** | OpenSpec 004-visualization-overhaul proposed. 24 tasks, 4 waves, 1 new module (visualization.py). Awaiting EM enrichment. |
+| Packaging & Submission | **Specced** | OpenSpec 005-submission-packaging proposed. 15 tasks, 4 waves, 5 notebooks + memo + open-source packaging. Awaiting EM enrichment. |
 
 ### Remaining Gaps
-- No MESMA unmixing code
-- No endmember library management
-- No LFMC estimation code
-- No burn severity regression
-- No validation framework
+- No geographic visualization (pixel coords only, no basemaps/perimeters) — 004-visualization-overhaul addresses this
 - No Jupyter notebook structure (Phase 4)
+- No NIFC fire perimeter data acquired yet
 - Competition track not formally selected (but FireSpec direction confirmed)
+- No open-source packaging (README, Zenodo, pip installable) — Phase 4
 
 ---
 
@@ -92,8 +93,10 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 |-------|-------|----------|--------|
 | 1 | Foundation & Literature Review | Apr 2026 | **Complete** |
 | 2 | Data Pipeline & Project Scaffolding | Apr 2026 | **Complete** (41/41 tasks, 159 tests) |
-| 3 | Core Analysis (MESMA, LFMC) | Apr-Jun 2026 | **Specced** (003-core-analysis) |
-| 4 | Packaging & Submission | Jul-Aug 2026 | Planned |
+| 3 | Core Analysis (MESMA, LFMC) | Apr 2026 | **Complete** (55/55 tasks, 334 tests, phase gate passed) |
+| 3.1 | Science Bug Fixes + Sensor Comparison | May 2026 | **Complete** (6 bugs fixed, sensor degradation simulation shipped) |
+| 3.5 | Visualization Overhaul | May 2026 | **Specced** (004-visualization-overhaul, 24 tasks, 4 waves) |
+| 4 | Packaging & Submission | Jun-Aug 2026 | **Specced** (005-submission-packaging, 15 tasks, 4 waves) |
 
 ---
 
@@ -101,6 +104,13 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 
 | Date | Event | Details |
 |------|-------|---------|
+| 2026-05-10 | Phase 4 specced | OpenSpec 005-submission-packaging: 5 Jupyter notebooks, technical memo, README, LICENSE, CITATION.cff, CI pipeline, API docs, figure export. 15 tasks, 4 waves. Awaiting EM enrichment. |
+| 2026-05-10 | Product memory updated, Plane synced | TANAGER-27 through TANAGER-34 closed (all had commits on main). Product memory updated with bug fix and sensor comparison status. |
+| 2026-05-10 | All science bugs resolved | 6/6 validation issues fixed: dNBR pre→post overlap (f7e2754), MESMA fraction clamp (6c3f864), SAI NaN (02b354e), SAI1660 dropped (86af154), CBI/BARC labeling (10c9e83), LFMC full-scene (cc364fe). |
+| 2026-05-10 | Sensor comparison shipped | simulate_sensor() + stage_sensor_comparison() — spectral degradation simulation Tanager→EMIT/PRISMA/S2 for +5 tie-breaker. Commits c028d67, f28dc55. |
+| 2026-05-04 | Visualization overhaul specced | OpenSpec 004-visualization-overhaul: geographic basemaps, fire perimeters, before/after panels, temporal trajectories, publication-quality figures. 24 tasks, 4 waves. +8-12 competition points. |
+| 2026-05-04 | Science issues triaged | Tobler triaged 6 P0-P2 issues from validation analysis (LGT-397): dNBR temporal logic, MESMA fraction violations, SAI1660, LFMC crop-only, severity naming, SAI NaN handling. |
+| 2026-04-28 | Phase 3 COMPLETE | 55/55 tasks, 334 tests passing. Phase gate passed. All core analysis modules shipped. |
 | 2026-04-28 | Phase 3 spec finalized | Incorporated Phase 2 remediation findings: per-band FWHM, reproject_to_common_grid, reflectance clamping, scene overlap warnings. Ready for /run-phase. |
 | 2026-04-27 | Phase 3 spec proposed | OpenSpec 003-core-analysis: MESMA + LFMC + severity + validation |
 | 2026-04-27 | Phase 2 complete | 41/41 tasks done, 159 tests passing, all modules shipped |
@@ -124,15 +134,19 @@ Tanager Competition is a research project targeting the Planet Tanager Open Data
 | 2026-04-27 | Use HyperCoast for I/O, SPy for spectral | Research evaluation: HyperCoast handles Tanager format, SPy is mature for analysis |
 | 2026-04-27 | Static STAC + pystac (not pystac-client) | Data access research confirmed static catalog, no API available |
 | 2026-04-27 | Ortho SR as primary product | Pre-corrected by Planet (ISOFIT v2.9.5), no additional atm correction needed |
+| 2026-05-10 | Submit under "Code & Scripts" track | Reusable toolkit format maximizes Workflow & Tool Development (20 pts) + open-source tie-breaker (+5); scientific depth still scores on Scientific Integrity (30 pts) |
+| 2026-05-10 | Spectral degradation as primary sensor comparison | Convolve Tanager 426 bands to simulate EMIT/PRISMA/S2; isolates spectral resolution advantage from spatial/temporal confounds. Already implemented (commits c028d67, f28dc55). |
 
 ---
 
 ## Open Threads
 
-1. **mesma v1.0.8 compatibility** — Must test with Python 3.10+ / numpy 2.x before Wave 2 starts
-2. **FRAMES SoCal library acquisition** — Need to confirm download mechanism (bulk vs scrape)
-3. **Globe-LFMC SoCal coverage** — Verify sufficient chaparral observations for LFMC training
-4. **AVIRIS-3 Eaton Fire access** — Confirm ORNL DAAC public availability
-5. **Competition track selection** — Lightning Case Studies vs Code & Scripts vs Technical Analysis
-6. **Field CBI data** — Can we obtain ground truth for LA fires? (May need to use BARC-derived proxy)
-7. **Ash vs. char separation** — Only 7 combined spectra in FRAMES; may need supplementary measurements
+1. ~~**mesma v1.0.8 compatibility**~~ — **RESOLVED:** Confirmed working on Python 3.12.3 / numpy 2.4.4.
+2. ~~**FRAMES SoCal library acquisition**~~ — **RESOLVED:** Individual ASCII downloads; loader handles local dir.
+3. ~~**Globe-LFMC SoCal coverage**~~ — **RESOLVED:** Strong SoCal coverage. Varga & Jones (2026) supplementary source.
+4. ~~**AVIRIS-3 Eaton Fire access**~~ — **RESOLVED:** Publicly available at ORNL DAAC.
+5. ~~**Competition track selection**~~ — **RESOLVED (2026-05-10):** Submit under **Code & Scripts**. Our deliverables (open-source Python package + 5 Jupyter notebooks + technical memo + GitHub repo) are a reusable toolkit, not a one-off case study. Code & Scripts maximizes Workflow & Tool Development (20 pts) and open-source tie-breaker (+5), while the scientific depth still scores on Scientific Integrity (30 pts).
+6. **Field CBI data** — No field CBI for LA fires. Pipeline uses synthetic CBI (3×char), now labeled as synthetic (commit 10c9e83). RAVG data from USGS Burn Severity Portal is best available proxy.
+7. **Ash vs. char separation** — Only 7 combined spectra in FRAMES; may need supplementary measurements.
+8. **NIFC fire perimeter acquisition** — Required for 004-visualization-overhaul. Two sources identified: (a) NIFC Open Data at data-nifc.opendata.arcgis.com — WFIGS fire perimeters, GeoJSON download, covers all 2025 fires nationally; (b) LA County ArcGIS Hub at egis-lacounty.hub.arcgis.com — local LA perimeters (Palisades, Eaton, Hughes). Recommend: try LA County first (authoritative for our study area), fall back to NIFC national. Download once, bundle in `data/reference/fire_perimeters/`. **Needs human action** — exact URLs need browser verification and manual download.
+9. ~~**Phase 4 spec**~~ — **RESOLVED (2026-05-10):** OpenSpec 005-submission-packaging proposed. 15 tasks, 4 waves. Awaiting EM enrichment.

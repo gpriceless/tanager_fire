@@ -4,8 +4,8 @@
 
 **Location:** `/docs/research-memory.md`
 **Owner:** Tobler (Research Lead)
-**Updated:** 2026-04-27
-**Version:** 2.2 (Phase 3 open questions resolved)
+**Updated:** 2026-05-04
+**Version:** 2.3 (Sensor comparison data availability verified)
 
 ---
 
@@ -51,6 +51,19 @@ This is the third tier of the memory system, specific to research-heavy projects
 | Tasking | On-demand | ISS orbital | Request | Request | Campaign |
 
 **Key insight:** Tanager-1 has the finest spectral sampling (5 nm) of any spaceborne imaging spectrometer. It is essentially an orbital AVIRIS-NG, making 20+ years of AVIRIS research directly transferable.
+
+### Sensor Comparison Data Availability (LA Fires, verified 2026-05-04)
+
+| Sensor | LA Fire Data? | Confirmed Dates | Access | Notes |
+|--------|---------------|-----------------|--------|-------|
+| **PRISMA** | **YES** | Jan 12, 2025 (post-fire) | ASI portal (free, registration) | No published PRISMA LA fire analysis yet |
+| **EMIT** | **UNCERTAIN** | Must query CMR API | NASA Earthdata (free) | Extended mission covers non-arid regions since 2024; ISS orbit irregular |
+| **Sentinel-2** | **YES** | Continuous (5-day revisit) | Copernicus Data Space (free) | Published dNBR studies exist; EMSR746 grading products available |
+| **AVIRIS-3** | **YES** | Jan 10 + 16, 2025 (3-4m) | NASA Earthdata (free) | Airborne; ash fraction maps published (86.3% accuracy) |
+
+**Comparison methodology:** Spectral degradation simulation is recommended as primary approach (convolve Tanager 426 bands to simulate EMIT/PRISMA/S2 bandpasses; isolates spectral resolution advantage). Supplementary real Sentinel-2 dNBR as broadband baseline.
+
+**Full report:** `research/sensor-comparison-research.md`
 
 ### Bad Bands / Atmospheric Windows to Mask
 

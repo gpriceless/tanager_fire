@@ -150,4 +150,4 @@ tanager/
 
 ## Status
 
-**Phase: Project Onboarding — Setting up research infrastructure**
+**Phase: Phases 1-3 COMPLETE. 004-visualization-overhaul + 005-submission-packaging specced, awaiting EM enrichment. Competition deadline: August 31, 2026.**

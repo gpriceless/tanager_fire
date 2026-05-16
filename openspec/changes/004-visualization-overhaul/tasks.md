@@ -30,7 +30,7 @@
 <!-- execution_mode: sequential -->
 <!-- network: REQUIRED — pip install contextily -->
 
-- [ ] Add `contextily` to `pyproject.toml` dependencies
+- [x] Add `contextily` to `pyproject.toml` dependencies
   <!-- files: pyproject.toml (modify) -->
   <!-- gotcha: contextily requires network access for tile fetching at runtime, but the pip
        install itself is straightforward. It depends on mercantile, rasterio (already present),
@@ -38,7 +38,7 @@
   <!-- test: pip install -e . succeeds; python -c "import contextily" works -->
   <!-- acceptance: contextily importable after editable install -->
 
-- [ ] Create `src/tanager/visualization.py` with module docstring and imports
+- [x] Create `src/tanager/visualization.py` with module docstring and imports
   <!-- files: src/tanager/visualization.py (create) -->
   <!-- pattern: follow existing module pattern — module docstring with public API list,
        TYPE_CHECKING imports for matplotlib types, lazy import of heavy deps (matplotlib,
@@ -47,7 +47,7 @@
        geopandas (lazy), rioxarray (lazy) -->
   <!-- acceptance: module exists, imports cleanly, has __all__ with all public function stubs -->
 
-- [ ] Add visualization lazy exports to `src/tanager/__init__.py`
+- [x] Add visualization lazy exports to `src/tanager/__init__.py`
   <!-- files: src/tanager/__init__.py (modify) -->
   <!-- pattern: add entries to _LAZY_EXPORTS dict following existing convention.
        Functions to export: plot_map, plot_before_after, plot_temporal_trajectory,
@@ -58,7 +58,7 @@
 ### Section 2: Product Styles & Core Rendering
 <!-- execution_mode: sequential -->
 
-- [ ] Implement `PRODUCT_STYLES` dictionary with colormap presets for all product types
+- [x] Implement `PRODUCT_STYLES` dictionary with colormap presets for all product types
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-002 — dict mapping product names to NamedTuple/dataclass with
        cmap, vmin, vmax, label, class_ticks fields.
@@ -68,7 +68,7 @@
        class_ticks (Optional[list]). Instantiate PRODUCT_STYLES as module-level dict. -->
   <!-- acceptance: PRODUCT_STYLES["dnbr"].cmap == "RdYlGn_r"; all 11 products present -->
 
-- [ ] Implement `plot_map(da, ...)` — geo-aware single-panel raster renderer
+- [x] Implement `plot_map(da, ...)` — geo-aware single-panel raster renderer
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-001, REQ-VIZ-003 -->
   <!-- signature: plot_map(da: xr.DataArray, title: str = "", cmap: str | None = None,
@@ -91,7 +91,7 @@
        with reasonable precision: formatter = FuncFormatter(lambda v, _: f"{v/1000:.0f}") -->
   <!-- acceptance: plot_map(nbr_da, product_name="nbr") produces figure with UTM axes, not pixel indices -->
 
-- [ ] Implement `save_figure(fig, path, formats)` — multi-format export utility
+- [x] Implement `save_figure(fig, path, formats)` — multi-format export utility
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-032 -->
   <!-- signature: save_figure(fig: Figure, path: str | Path, formats: list[str] = ["png"]) -> list[Path] -->
@@ -99,7 +99,7 @@
        Return list of written paths. Create parent directory if needed. -->
   <!-- acceptance: save_figure(fig, "out/test", ["png", "pdf"]) writes both files -->
 
-- [ ] Write tests for PRODUCT_STYLES, plot_map, and save_figure
+- [x] Write tests for PRODUCT_STYLES, plot_map, and save_figure
   <!-- files: tests/test_visualization.py (create) -->
   <!-- pattern: create synthetic xarray DataArray fixtures with CRS metadata (rio.write_crs).
        Test that plot_map returns Figure, axes have non-pixel labels, colorbar exists.
@@ -118,7 +118,7 @@
 ### Section 3: Basemap & Fire Perimeters
 <!-- execution_mode: sequential -->
 
-- [ ] Implement `add_basemap(ax, source, alpha)` — contextily tile overlay
+- [x] Implement `add_basemap(ax, source, alpha)` — contextily tile overlay
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-010 -->
   <!-- signature: add_basemap(ax: Axes, source: str = "satellite", alpha: float = 0.3) -> Axes -->
@@ -135,7 +135,7 @@
        or a pyproj CRS object. Extract from DataArray via da.rio.crs. -->
   <!-- acceptance: add_basemap(ax) adds tiles without error; visual: tiles visible behind raster -->
 
-- [ ] Implement `load_fire_perimeters(path)` — NIFC perimeter loader
+- [x] Implement `load_fire_perimeters(path)` — NIFC perimeter loader
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-011 -->
   <!-- signature: load_fire_perimeters(path: str | Path) -> gpd.GeoDataFrame -->
@@ -143,7 +143,7 @@
        Support GeoJSON and shapefile formats (geopandas handles both). -->
   <!-- acceptance: load_fire_perimeters("perimeter.geojson") returns GeoDataFrame with geometry -->
 
-- [ ] Implement `overlay_perimeters(ax, perimeters, ...)` — vector boundary overlay
+- [x] Implement `overlay_perimeters(ax, perimeters, ...)` — vector boundary overlay
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-011 -->
   <!-- signature: overlay_perimeters(ax: Axes, perimeters: gpd.GeoDataFrame,
@@ -156,7 +156,7 @@
        4. Return ax -->
   <!-- acceptance: overlay_perimeters(ax, gdf) draws dashed red outlines -->
 
-- [ ] Implement `add_scalebar(ax, length_km, location)` — scale bar element
+- [x] Implement `add_scalebar(ax, length_km, location)` — scale bar element
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-012 -->
   <!-- signature: add_scalebar(ax: Axes, length_km: float = 5.0,
@@ -168,7 +168,7 @@
        implementation is ~15 lines and avoids an extra dependency. -->
   <!-- acceptance: add_scalebar(ax, 5) renders a 5 km bar in lower-left -->
 
-- [ ] Write tests for basemap, perimeter, and scalebar functions
+- [x] Write tests for basemap, perimeter, and scalebar functions
   <!-- files: tests/test_visualization.py (modify) -->
   <!-- pattern: test add_basemap with mocked contextily (patch ctx.add_basemap to no-op).
        Test offline graceful degradation (mock network error → no exception).
@@ -186,7 +186,7 @@
 ### Section 4: Comparison Panels
 <!-- execution_mode: sequential -->
 
-- [ ] Implement `plot_before_after(pre, post, product_name, ...)` — side-by-side comparison
+- [x] Implement `plot_before_after(pre, post, product_name, ...)` — side-by-side comparison
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-020 -->
   <!-- signature: plot_before_after(pre: xr.DataArray, post: xr.DataArray,
@@ -207,7 +207,7 @@
        simpler and preserves full spatial coverage — recommend this approach. -->
   <!-- acceptance: plot_before_after(pre_nbr, post_nbr, "nbr") produces 2-panel figure -->
 
-- [ ] Implement `plot_difference_map(diff_da, product_name, ...)` — styled dNBR with severity contours
+- [x] Implement `plot_difference_map(diff_da, product_name, ...)` — styled dNBR with severity contours
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-023 -->
   <!-- signature: plot_difference_map(diff_da: xr.DataArray, product_name: str = "dnbr",
@@ -222,7 +222,7 @@
           "Mod-High": 0.66} -->
   <!-- acceptance: plot_difference_map(dnbr) shows raster with labeled contour lines at severity boundaries -->
 
-- [ ] Implement `plot_severity_summary(fractions, cbi, severity_class, ...)` — multi-panel grid
+- [x] Implement `plot_severity_summary(fractions, cbi, severity_class, ...)` — multi-panel grid
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-022 -->
   <!-- signature: plot_severity_summary(fractions: xr.Dataset, cbi: xr.DataArray,
@@ -240,7 +240,7 @@
        pixel coords. This function adds geographic axes and CBI/severity panels. -->
   <!-- acceptance: plot_severity_summary produces 6-panel figure with correct colormaps -->
 
-- [ ] Write tests for comparison panel functions
+- [x] Write tests for comparison panel functions
   <!-- files: tests/test_visualization.py (modify) -->
   <!-- pattern: test plot_before_after with two synthetic DataArrays. Verify 2 axes in figure.
        Test plot_difference_map produces contour lines when boundaries provided.
@@ -251,7 +251,7 @@
 ### Section 5: Temporal Trajectory Charts
 <!-- execution_mode: sequential -->
 
-- [ ] Implement `plot_temporal_trajectory(dates, values, product_name, ...)` — time series chart
+- [x] Implement `plot_temporal_trajectory(dates, values, product_name, ...)` — time series chart
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-021 -->
   <!-- signature: plot_temporal_trajectory(dates: list[datetime], values: list[float],
@@ -273,7 +273,7 @@
        mean values — this function should accept that output format directly. -->
   <!-- acceptance: plot_temporal_trajectory produces line chart with fire event marker -->
 
-- [ ] Write tests for temporal trajectory function
+- [x] Write tests for temporal trajectory function
   <!-- files: tests/test_visualization.py (modify) -->
   <!-- pattern: test with 5 synthetic date/value pairs. Verify line plotted, fire event marker
        present (axvline), error bands rendered when provided. -->
@@ -288,7 +288,7 @@
 ### Section 6: Interactive Maps
 <!-- execution_mode: sequential -->
 
-- [ ] Implement `interactive_map(layers, center, zoom, ...)` — leafmap/folium interactive map
+- [x] Implement `interactive_map(layers, center, zoom, ...)` — leafmap/folium interactive map
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-030 -->
   <!-- signature: interactive_map(layers: list[tuple[xr.DataArray, str]] | None = None,
@@ -310,7 +310,7 @@
        If both fail, raise ImportError with helpful message. -->
   <!-- acceptance: interactive_map([(nbr, "nbr")]) returns displayable Map widget -->
 
-- [ ] Implement `show_product(da, product_name, scene_date, interactive)` — convenience helper
+- [x] Implement `show_product(da, product_name, scene_date, interactive)` — convenience helper
   <!-- files: src/tanager/visualization.py (modify) -->
   <!-- spec: REQ-VIZ-031 -->
   <!-- signature: show_product(da: xr.DataArray, product_name: str,
@@ -322,7 +322,7 @@
        3. Auto-detect product_name from DataArray name attribute if not provided -->
   <!-- acceptance: show_product(nbr, "nbr", "2025-01-23") returns Figure with basemap -->
 
-- [ ] Write tests for interactive map and show_product functions
+- [x] Write tests for interactive map and show_product functions
   <!-- files: tests/test_visualization.py (modify) -->
   <!-- pattern: mock leafmap.Map to avoid network dependency. Test that interactive_map
        creates a Map object. Test show_product dispatches correctly based on interactive flag.
@@ -332,7 +332,7 @@
 ### Section 7: Integration & Final Polish
 <!-- execution_mode: sequential -->
 
-- [ ] Wire `plot_map` into `run_pipeline.py` replacing `_quicklook_png` for all PNG outputs
+- [x] Wire `plot_map` into `run_pipeline.py` replacing `_quicklook_png` for all PNG outputs
   <!-- files: scripts/run_pipeline.py (modify) -->
   <!-- logic: replace _quicklook_png(da, path, title, cmap) calls with:
        fig = tanager.plot_map(da, title=title, product_name=product_name, basemap=False)
@@ -344,20 +344,20 @@
        Wrap the new call in try/except with fallback to _quicklook_png. -->
   <!-- acceptance: running the pipeline produces PNGs with UTM coordinate axes -->
 
-- [ ] Update module `__all__` and verify all public API exports resolve
+- [x] Update module `__all__` and verify all public API exports resolve
   <!-- files: src/tanager/visualization.py (modify), src/tanager/__init__.py (verify) -->
   <!-- logic: ensure __all__ in visualization.py matches _LAZY_EXPORTS in __init__.py.
        Test: python -c "import tanager; print(tanager.plot_map)" should not raise. -->
   <!-- acceptance: all 13 lazy exports resolve without error -->
 
-- [ ] Write integration test: generate publication figure from synthetic data end-to-end
+- [x] Write integration test: generate publication figure from synthetic data end-to-end
   <!-- files: tests/test_visualization.py (modify) -->
   <!-- pattern: create a complete synthetic scene (DataArray with CRS, bounds, realistic values),
        call plot_map with publication=True, save_figure to temp dir, verify PNG written at 300 DPI.
        Optionally call plot_before_after and plot_temporal_trajectory with synthetic data. -->
   <!-- acceptance: integration test produces publication-quality PNG files on disk -->
 
-- [ ] smoke: end-to-end exercise — import tanager, call plot_map + save_figure + interactive_map on synthetic data
+- [x] smoke: end-to-end exercise — import tanager, call plot_map + save_figure + interactive_map on synthetic data
   <!-- files: tests/test_visualization.py (modify) -->
   <!-- pattern: single test function that exercises the full public API surface:
        1. Create synthetic DataArray with CRS (EPSG:32611)
@@ -367,18 +367,3 @@
        5. Verify all calls succeed without exception and produce expected return types -->
   <!-- acceptance: smoke test passes — all visualization functions callable end-to-end -->
 
----
-
-## Summary
-
-| Wave | Sections | Tasks | Focus |
-|------|----------|-------|-------|
-| 1 | 1-2 | 7 | Module scaffold, product styles, core geo-aware rendering |
-| 2 | 3 | 5 | Basemap tiles, fire perimeters, scale bar |
-| 3 | 4-5 | 6 | Before/after panels, temporal trajectories, severity grids |
-| 4 | 6-7 | 7 | Interactive leafmap, notebook helpers, pipeline integration, smoke test |
-| **Total** | **7** | **25** | |
-
-<!-- DEFERRED TASKS
-(none — all original PQ tasks retained, one smoke task added by EM)
--->

@@ -4,8 +4,8 @@
 
 **Location:** `/docs/engineering-memory.md`
 **Owner:** Engineering Manager (Crenshaw)
-**Updated:** 2026-04-28
-**Version:** 3.3 (Phase 3 — Wave 4 Validation & Integration in progress; validation module + 5 test files merged)
+**Updated:** 2026-04-30
+**Version:** 3.5 (Phase 3 COMPLETE — validation analysis received, 6 issues triaged)
 
 ---
 
@@ -23,7 +23,7 @@ This document is the Engineering Manager's working memory. It tracks:
 
 ## Architecture Overview
 
-### Status: Phase 3 — Core Analysis (003-core-analysis) — Wave 4 in progress (validation.py landed, full pytest 331/332 green)
+### Status: Phase 3 — Core Analysis (003-core-analysis) — COMPLETE (55/55 tasks, 334 tests passing, phase gate passed 2026-04-28). Awaiting Phase 4 OpenSpec from PQ.
 
 Python package at `src/tanager/`, editable install via `pip install -e .`.
 
@@ -192,6 +192,12 @@ tests/
 | TD-4 | In-CoB selection is simplified (spectral variability ranking) until MESMA exists | Low | Full In-CoB requires unmixing loop; deferred to post-Wave 2 refinement |
 | TD-5 | ~~mesma v1.0.8 may not be numpy 2.x compatible~~ | ~~High~~ | **RESOLVED (2026-04-28) — mesma 1.0.8 verified on Python 3.12.3 / numpy 2.4.4. API: MesmaCore.execute(). Stays as optional dep, primary engine.** |
 | TD-6 | FRAMES SoCal library bulk download mechanism unverified | Medium | Manual download acceptable for competition; loader handles local dir |
+| TD-7 | dNBR temporal logic: both scenes are post-fire; need pre-fire scene (before Jan 7 2025) for valid burn severity | High | Data sourcing gap — 20241215 is pre-fire but ~60km from post-fire footprint |
+| TD-8 | MESMA fractions violate non-negativity: 5-9% negative, 8-12% >1.0 after shade normalization | High | Add clamp + re-normalize in normalize_fractions(), or FCLS constraints in solver |
+| TD-9 | SAI1660 produces all zeros on real Tanager data (atmospheric absorption at 1530-1790nm) | Medium | Remove from LFMC feature set or rework continuum fitting approach |
+| TD-10 | Severity class naming conflates CBI (0-3) with BARC (0-4) | Low | Rename outputs, add metadata distinguishing CBI vs BARC |
+| TD-11 | LFMC continuum removal too slow for full scenes (>4min killed); only 256×256 crops work | High | Vectorize hull computation (numpy broadcasting or dask chunking). Tracked as LGT-331 |
+| TD-12 | SAI produces 0 instead of NaN for masked pixels; inconsistent with NDWI/WI/CR NaN handling | Medium | Add NaN guard before clip in SAI computation |
 
 ---
 
@@ -203,7 +209,7 @@ tests/
 | 2026-04-27 | 002-data-pipeline tasks.md enriched (EM audit) | **DONE** |
 | 2026-04-27 | 002-data-pipeline built and merged to main | **DONE** |
 | 2026-04-27 | 003-core-analysis tasks.md enriched (EM audit) | **DONE** |
-| 2026-04-28 | Phase 2 remediation: 5/6 bugs resolved, LGT-298 closed, LGT-299 awaiting last QA | **IN PROGRESS** |
+| 2026-04-28 | Phase 2 remediation: 5/6 bugs resolved, LGT-298 closed, LGT-299 awaiting last QA | **DONE** |
 | 2026-04-28 | Phase 3 (003-core-analysis) EM validation: READY, no blockers | **DONE** |
 | 2026-04-28 | Phase 2 findings integrated into Phase 3 tasks.md (epsilon guard, FWHM, reflectance clamp) | **DONE** |
 | 2026-04-28 | Phase 3 Wave 1 Section 1 complete: deps added, mesma verified (PASS), spectral-libraries verified (PASS, corrected import path), splib07-loader incompatible (custom ASCII parser needed) | **DONE** |
@@ -211,3 +217,7 @@ tests/
 | 2026-04-28 | Wave 4 validation module landed: validation.py (load_aviris3_reference, load_barc_reference, compute_accuracy, compare_sensors). Continuous metrics (R²/RMSE/MAE/bias/Spearman) and classified metrics (accuracy/Cohen κ/F1/confusion) with NaN/nodata pairwise masking. compare_sensors emits an improvement_ratios dict + pandas comparison_table for the +5 EMIT/PRISMA tie-breaker. | **DONE** |
 | 2026-04-28 | Wave 4 test suite landed: tests/test_endmembers.py (25), tests/test_unmixing.py expanded (+3 → 22), tests/test_severity.py (12), tests/test_lfmc.py (16), tests/test_validation.py (19). Full pytest tests/ → 331 passed, 1 skipped (spectral_libraries optional dep). | **DONE** |
 | 2026-04-28 | Public API expanded with 12 new lazy exports across severity / lfmc / validation; `import tanager; tanager.<symbol>` resolves for every Wave 1–4 public function. | **DONE** |
+| 2026-04-28 | Phase 3 (003-core-analysis) COMPLETE: 55/55 tasks, 334 tests passing (1 skipped), phase gate passed. TANAGER-24 (continuum_removal lower-hull bug) fixed via upper-hull monotone chain (commits 06d5671, f6d16cf) — Plane Done. EM audit passed. | **DONE** |
+| 2026-04-28 | End-to-end FireSpec validation on real Tanager scenes (commit 49ec241). Pipeline ran 15/15 stages, 50 GeoTIFFs + 12 PNGs produced. | **DONE** |
+| 2026-04-30 | Tobler validation analysis received (outputs/validation_analysis.md): 6 issues found. Pipeline plumbing validated, outputs not submission-ready. 3 High issues (TD-7/8/11), 2 Medium (TD-9/12), 1 Low (TD-10). No new OpenSpec yet — awaiting PQ Phase 4 spec. | **REVIEW** |
+| 2026-04-30 | QA-Master Phase 3 gate PASS (LGT-352): 336 tests, 49 exports, no stubs, no regressions. LGT-321 (Wave 3 coder) closed. All Phase 3 Paperclip issues resolved. | **DONE** |
