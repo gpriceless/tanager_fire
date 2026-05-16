@@ -254,9 +254,18 @@ def stage_indices(scene: xr.Dataset, scene_id: str, out_dir: Path) -> tuple[str,
         png = out_dir / f"{scene_id}_{name}.png"
         artifacts.append(_write_geotiff(da, tif, crs))
         try:
-            artifacts.append(_quicklook_png(da, png, f"{scene_id} {name.upper()}", cmap))
+            import matplotlib.pyplot as plt
+            product_name = name
+            fig = tanager.plot_map(da, title=f"{scene_id} {name.upper()}", product_name=product_name, basemap=False)
+            tanager.save_figure(fig, png.with_suffix(""), formats=["png"])
+            plt.close(fig)
+            artifacts.append(png)
         except Exception as exc:
             log.warning("quicklook for %s/%s skipped: %s", scene_id, name, exc)
+            try:
+                artifacts.append(_quicklook_png(da, png, f"{scene_id} {name.upper()}", cmap))
+            except Exception as exc2:
+                log.warning("fallback quicklook for %s/%s also failed: %s", scene_id, name, exc2)
     return "; ".join(stats_lines), artifacts
 
 
@@ -460,12 +469,22 @@ def stage_severity(fractions: xr.Dataset, scene_id: str, out_dir: Path) -> tuple
     artifacts.append(_write_geotiff(out["cbi_map"], out_dir / f"{scene_id}_cbi.tif", crs))
     artifacts.append(_write_geotiff(out["severity_map"], out_dir / f"{scene_id}_barc_severity.tif", crs))
     try:
-        artifacts.append(_quicklook_png(
-            out["cbi_map"], out_dir / f"{scene_id}_cbi.png",
-            f"{scene_id} synthetic CBI", cmap="hot_r",
-        ))
-    except Exception:
-        pass
+        import matplotlib.pyplot as plt
+        _cbi_png = out_dir / f"{scene_id}_cbi.png"
+        product_name = "cbi"
+        fig = tanager.plot_map(out["cbi_map"], title=f"{scene_id} synthetic CBI", product_name=product_name, basemap=False)
+        tanager.save_figure(fig, _cbi_png.with_suffix(""), formats=["png"])
+        plt.close(fig)
+        artifacts.append(_cbi_png)
+    except Exception as exc:
+        log.warning("plot_map quicklook for %s/cbi skipped: %s", scene_id, exc)
+        try:
+            artifacts.append(_quicklook_png(
+                out["cbi_map"], out_dir / f"{scene_id}_cbi.png",
+                f"{scene_id} synthetic CBI", cmap="hot_r",
+            ))
+        except Exception:
+            pass
     detail = (
         f"trained RF (synthetic CBI, ground_truth_source='synthetic (3 x char)') "
         f"cv_r2={train['r2']:.3f} cv_rmse={train['rmse']:.3f}; "
@@ -493,9 +512,18 @@ def stage_dnbr(pre: xr.Dataset, post: xr.Dataset, label: str, out_dir: Path) -> 
         _write_geotiff(da, tif, crs),
     ]
     try:
-        artifacts.append(_quicklook_png(da, png, f"{label} dNBR (pre - post)", cmap="RdYlGn_r"))
-    except Exception:
-        pass
+        import matplotlib.pyplot as plt
+        product_name = "dnbr"
+        fig = tanager.plot_map(da, title=f"{label} dNBR (pre - post)", product_name=product_name, basemap=False)
+        tanager.save_figure(fig, png.with_suffix(""), formats=["png"])
+        plt.close(fig)
+        artifacts.append(png)
+    except Exception as exc:
+        log.warning("plot_map quicklook for %s/dnbr skipped: %s", label, exc)
+        try:
+            artifacts.append(_quicklook_png(da, png, f"{label} dNBR (pre - post)", cmap="RdYlGn_r"))
+        except Exception:
+            pass
     detail = (
         f"shape={da.shape} n_finite={s['n_finite']} "
         f"min={s['min']:+.3f} max={s['max']:+.3f} mean={s['mean']:+.3f} p50={s['p50']:+.3f}"
