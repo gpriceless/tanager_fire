@@ -674,3 +674,249 @@ class TestEndToEndPlotMapBasemapPerimetersScalebar:
             assert len(ax.patches) >= 1
         finally:
             plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# plot_before_after — side-by-side pre/post comparison
+# ---------------------------------------------------------------------------
+
+
+def _make_pre_da() -> xr.DataArray:
+    """Pre-fire DataArray (smaller spatial extent, 70x70)."""
+    x = np.linspace(340_000, 347_000, 70)
+    y = np.linspace(3_780_000, 3_787_000, 70)
+    rng = np.random.default_rng(1)
+    return xr.DataArray(rng.random((70, 70)) * 0.8, coords={"y": y, "x": x}, dims=["y", "x"])
+
+
+def _make_post_da() -> xr.DataArray:
+    """Post-fire DataArray (larger spatial extent, 100x100)."""
+    x = np.linspace(339_000, 350_000, 100)
+    y = np.linspace(3_779_000, 3_790_000, 100)
+    rng = np.random.default_rng(2)
+    return xr.DataArray(rng.random((100, 100)) * 0.3, coords={"y": y, "x": x}, dims=["y", "x"])
+
+
+class TestPlotBeforeAfterReturnsFigure:
+    """plot_before_after must return a matplotlib Figure."""
+
+    def test_returns_figure(self):
+        from matplotlib.figure import Figure
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        fig = plot_before_after(pre, post, "nbr")
+        try:
+            assert isinstance(fig, Figure)
+        finally:
+            plt.close(fig)
+
+
+class TestPlotBeforeAfterTwoPanels:
+    """Figure must contain at least 2 map axes (plus colorbar)."""
+
+    def test_has_at_least_three_axes(self):
+        """2 map panels + 1 shared colorbar = at least 3 axes."""
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        fig = plot_before_after(pre, post, "nbr")
+        try:
+            assert len(fig.axes) >= 3, (
+                f"Expected >= 3 axes (2 map + colorbar), got {len(fig.axes)}"
+            )
+        finally:
+            plt.close(fig)
+
+    def test_panel_titles_match_labels(self):
+        """Panel titles must use the supplied pre_label and post_label strings."""
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        fig = plot_before_after(
+            pre, post, "nbr",
+            pre_label="Dec 15 Pre-Fire",
+            post_label="Jan 23 Post-Fire",
+        )
+        try:
+            titles = [ax.get_title() for ax in fig.axes[:2]]
+            assert titles[0] == "Dec 15 Pre-Fire"
+            assert titles[1] == "Jan 23 Post-Fire"
+        finally:
+            plt.close(fig)
+
+    def test_default_panel_titles_when_no_labels(self):
+        """Default titles must be 'Pre-Fire' and 'Post-Fire'."""
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        fig = plot_before_after(pre, post, "nbr")
+        try:
+            titles = [ax.get_title() for ax in fig.axes[:2]]
+            assert titles[0] == "Pre-Fire"
+            assert titles[1] == "Post-Fire"
+        finally:
+            plt.close(fig)
+
+
+class TestPlotBeforeAfterUTMAxes:
+    """Both panels must render UTM metre-scale axes (not pixel indices)."""
+
+    def test_pre_panel_xlim_is_utm(self):
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        fig = plot_before_after(pre, post, "nbr")
+        try:
+            ax_pre = fig.axes[0]
+            xlo, xhi = ax_pre.get_xlim()
+            assert xlo > 100_000, f"Pre panel xlim lower {xlo} looks like pixels"
+            assert xhi > 100_000, f"Pre panel xlim upper {xhi} looks like pixels"
+        finally:
+            plt.close(fig)
+
+    def test_post_panel_xlim_is_utm(self):
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        fig = plot_before_after(pre, post, "nbr")
+        try:
+            ax_post = fig.axes[1]
+            xlo, xhi = ax_post.get_xlim()
+            assert xlo > 100_000, f"Post panel xlim lower {xlo} looks like pixels"
+            assert xhi > 100_000, f"Post panel xlim upper {xhi} looks like pixels"
+        finally:
+            plt.close(fig)
+
+    def test_panels_have_different_extents_for_different_size_inputs(self):
+        """Pre and post scenes with different extents should produce different xlims."""
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        fig = plot_before_after(pre, post, "nbr")
+        try:
+            xlo_pre, xhi_pre = fig.axes[0].get_xlim()
+            xlo_post, xhi_post = fig.axes[1].get_xlim()
+            # Pre x runs 340–347k; post runs 339–350k — they differ
+            assert xhi_post > xhi_pre, (
+                f"Post xlim upper {xhi_post} should exceed pre {xhi_pre} for wider scene"
+            )
+        finally:
+            plt.close(fig)
+
+
+class TestPlotBeforeAfterNaNHandling:
+    """NaN values in pre or post must render without error."""
+
+    def test_pre_with_nan_renders(self):
+        from matplotlib.figure import Figure
+        from tanager.visualization import plot_before_after
+
+        pre = _make_pre_da()
+        arr = pre.values.copy()
+        arr[10:30, 10:30] = np.nan
+        pre_nan = pre.copy(data=arr)
+        post = _make_post_da()
+
+        fig = plot_before_after(pre_nan, post, "nbr")
+        try:
+            assert isinstance(fig, Figure)
+        finally:
+            plt.close(fig)
+
+    def test_post_all_nan_renders(self):
+        from matplotlib.figure import Figure
+        from tanager.visualization import plot_before_after
+
+        pre = _make_pre_da()
+        post = _make_post_da()
+        post_nan = post.copy(data=np.full(post.shape, np.nan))
+
+        fig = plot_before_after(pre, post_nan, "nbr")
+        try:
+            assert isinstance(fig, Figure)
+        finally:
+            plt.close(fig)
+
+
+class TestPlotBeforeAfterAllProducts:
+    """plot_before_after must render without error for every product in PRODUCT_STYLES."""
+
+    @pytest.mark.parametrize("product", sorted({
+        "nbr", "ndvi", "ndwi", "dnbr", "cbi", "severity", "char", "pv", "npv", "soil", "lfmc"
+    }))
+    def test_all_products_render(self, product):
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        fig = plot_before_after(pre, post, product)
+        try:
+            assert len(fig.axes) >= 3
+        finally:
+            plt.close(fig)
+
+
+class TestPlotBeforeAfterPublicationMode:
+    """publication=True must set DPI to 300."""
+
+    def test_publication_dpi(self):
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        fig = plot_before_after(pre, post, "nbr", publication=True)
+        try:
+            assert fig.get_dpi() == 300
+        finally:
+            plt.close(fig)
+
+
+class TestPlotBeforeAfterFirePerimeters:
+    """When fire_perimeters is provided, both panels must get perimeter overlays."""
+
+    def _make_perimeters(self):
+        import geopandas as gpd
+        from shapely.geometry import Polygon
+
+        poly = Polygon(
+            [(-118.5, 34.0), (-118.4, 34.0), (-118.4, 34.1), (-118.5, 34.1)]
+        )
+        return gpd.GeoDataFrame(
+            {"name": ["Test Fire"]}, geometry=[poly], crs="EPSG:4326"
+        )
+
+    def test_perimeters_added_to_both_panels(self):
+        """Each panel must gain at least one collection or line from the perimeter overlay."""
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        perimeters = self._make_perimeters()
+
+        fig = plot_before_after(pre, post, "nbr", fire_perimeters=perimeters)
+        try:
+            ax_pre = fig.axes[0]
+            ax_post = fig.axes[1]
+            pre_has_overlay = len(ax_pre.collections) > 0 or len(ax_pre.lines) > 0
+            post_has_overlay = len(ax_post.collections) > 0 or len(ax_post.lines) > 0
+            assert pre_has_overlay, "Pre-fire panel missing perimeter overlay"
+            assert post_has_overlay, "Post-fire panel missing perimeter overlay"
+        finally:
+            plt.close(fig)
+
+
+class TestPlotBeforeAfterBasemap:
+    """When basemap=True, add_basemap must be called on both panels."""
+
+    def test_basemap_called_on_both_panels(self):
+        from unittest.mock import patch
+        from tanager.visualization import plot_before_after
+
+        pre, post = _make_pre_da(), _make_post_da()
+        with patch("contextily.add_basemap") as mock_ctx:
+            fig = plot_before_after(pre, post, "nbr", basemap=True)
+        try:
+            # add_basemap is called once per panel, so 2 calls total
+            assert mock_ctx.call_count == 2, (
+                f"Expected 2 contextily.add_basemap calls, got {mock_ctx.call_count}"
+            )
+        finally:
+            plt.close(fig)

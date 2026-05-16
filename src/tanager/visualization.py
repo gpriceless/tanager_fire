@@ -351,30 +351,173 @@ def plot_map(
 
 
 def plot_before_after(
-    before: xr.DataArray,
-    after: xr.DataArray,
-    *,
-    titles: Tuple[str, str] = ("Before", "After"),
-    **kwargs: Any,
+    pre: xr.DataArray,
+    post: xr.DataArray,
+    product_name: str = "nbr",
+    pre_label: Optional[str] = None,
+    post_label: Optional[str] = None,
+    fire_perimeters: Optional[Any] = None,
+    basemap: bool = False,
+    publication: bool = False,
+    figsize: Tuple[float, float] = (16, 8),
 ) -> "Figure":
     """Render a side-by-side pre/post fire comparison figure.
 
+    Each panel is rendered at its own spatial extent using the same colormap
+    and value range drawn from :data:`PRODUCT_STYLES`.  A single shared
+    colorbar spans both panels.
+
     Parameters
     ----------
-    before:
-        Pre-fire raster DataArray.
-    after:
-        Post-fire raster DataArray.
-    titles:
-        Panel titles for the before and after axes.
-    **kwargs:
-        Forwarded to :func:`plot_map`.
+    pre:
+        Pre-fire raster DataArray with ``x`` (easting) and ``y`` (northing)
+        coordinates in metres (UTM).
+    post:
+        Post-fire raster DataArray.  May have a different spatial extent than
+        *pre*; each panel is rendered at its own extent.
+    product_name:
+        Key into :data:`PRODUCT_STYLES` (e.g. ``"nbr"``).  Provides the
+        colormap (*cmap*), *vmin*, *vmax*, and colorbar label.
+    pre_label:
+        Title for the left (pre-fire) panel.  Defaults to ``"Pre-Fire"``.
+    post_label:
+        Title for the right (post-fire) panel.  Defaults to ``"Post-Fire"``.
+    fire_perimeters:
+        Optional GeoDataFrame of fire perimeter polygons.  When provided,
+        :func:`overlay_perimeters` is called on both panels.
+    basemap:
+        When ``True`` call :func:`add_basemap` on both panels after rendering.
+    publication:
+        When ``True`` use DPI 300 and larger font sizes.
+    figsize:
+        ``(width, height)`` in inches for the new figure.
 
     Returns
     -------
     matplotlib.figure.Figure
+        Figure with two map panels and a shared colorbar.
     """
-    raise NotImplementedError
+    import copy as _copy
+
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
+
+    # --- resolve style --------------------------------------------------------
+    style = PRODUCT_STYLES.get(product_name)
+    if style is not None:
+        cmap = style.cmap
+        vmin = style.vmin
+        vmax = style.vmax
+        cb_label = style.label
+    else:
+        logger.warning(
+            "plot_before_after: product_name %r not found in PRODUCT_STYLES; "
+            "using viridis with data-range scaling",
+            product_name,
+        )
+        cmap = "viridis"
+        vmin = None
+        vmax = None
+        cb_label = product_name or ""
+
+    # --- font sizes -----------------------------------------------------------
+    title_fontsize = 14
+    label_fontsize = 12
+    tick_labelsize = 10
+    if publication:
+        title_fontsize = 18
+        label_fontsize = 14
+        tick_labelsize = 12
+
+    # --- figure / axes --------------------------------------------------------
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
+    ax_pre, ax_post = axes
+
+    # --- colormap with transparent NaN ----------------------------------------
+    cm_obj = _copy.copy(plt.get_cmap(cmap))
+    cm_obj.set_bad(color="white", alpha=0.0)
+
+    # --- helper: compute extent from a DataArray ------------------------------
+    def _extent(da: xr.DataArray) -> Optional[list]:
+        x_coord: Optional["np.ndarray"] = None
+        y_coord: Optional["np.ndarray"] = None
+        for name in ("x", "easting", "lon", "longitude"):
+            if name in da.coords:
+                x_coord = da.coords[name].values
+                break
+        for name in ("y", "northing", "lat", "latitude"):
+            if name in da.coords:
+                y_coord = da.coords[name].values
+                break
+
+        if x_coord is None or y_coord is None:
+            return None
+
+        xmin = float(x_coord.min())
+        xmax = float(x_coord.max())
+        dx = (xmax - xmin) / max(len(x_coord) - 1, 1) if len(x_coord) > 1 else 1.0
+        ymin = float(y_coord.min())
+        ymax = float(y_coord.max())
+        dy = (ymax - ymin) / max(len(y_coord) - 1, 1) if len(y_coord) > 1 else 1.0
+        return [xmin - dx / 2, xmax + dx / 2, ymin - dy / 2, ymax + dy / 2]
+
+    # --- helper: render one panel and return the AxesImage --------------------
+    def _render_panel(ax: "Axes", da: xr.DataArray, panel_label: str) -> Any:
+        arr = np.ma.masked_invalid(da.values)
+        ext = _extent(da)
+        use_geo = ext is not None
+
+        im = ax.imshow(
+            arr,
+            extent=ext,
+            origin="lower",
+            cmap=cm_obj,
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="nearest",
+        )
+
+        if use_geo:
+            km_fmt = FuncFormatter(lambda v, _: f"{v / 1000:.0f}")
+            ax.xaxis.set_major_formatter(km_fmt)
+            ax.yaxis.set_major_formatter(km_fmt)
+            ax.set_xlabel("Easting (km)", fontsize=label_fontsize)
+            ax.set_ylabel("Northing (km)", fontsize=label_fontsize)
+            ax.tick_params(axis="both", labelsize=tick_labelsize)
+
+        ax.set_title(panel_label, fontsize=title_fontsize)
+        return im
+
+    # --- render both panels ---------------------------------------------------
+    _render_panel(ax_pre, pre, pre_label or "Pre-Fire")
+    im_post = _render_panel(ax_post, post, post_label or "Post-Fire")
+
+    # --- shared colorbar spanning both panels ---------------------------------
+    cbar = fig.colorbar(
+        im_post,
+        ax=axes.tolist(),
+        orientation="horizontal",
+        fraction=0.05,
+        pad=0.08,
+    )
+    if cb_label:
+        cbar.set_label(cb_label, fontsize=label_fontsize)
+    cbar.ax.tick_params(labelsize=tick_labelsize)
+
+    # --- optional overlays ----------------------------------------------------
+    if fire_perimeters is not None:
+        overlay_perimeters(ax_pre, fire_perimeters)
+        overlay_perimeters(ax_post, fire_perimeters)
+
+    if basemap:
+        add_basemap(ax_pre)
+        add_basemap(ax_post)
+
+    # --- publication DPI ------------------------------------------------------
+    if publication:
+        fig.set_dpi(300)
+
+    return fig
 
 
 def plot_temporal_trajectory(
