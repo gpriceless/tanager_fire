@@ -551,28 +551,162 @@ def plot_temporal_trajectory(
 
 
 def plot_severity_summary(
-    severity: xr.DataArray,
-    *,
-    ax: Optional["Axes"] = None,
-    bins: int = 50,
-    **kwargs: Any,
+    fractions: xr.Dataset,
+    cbi: xr.DataArray,
+    severity_class: xr.DataArray,
+    publication: bool = False,
+    figsize: Tuple[float, float] = (18, 12),
 ) -> "Figure":
-    """Produce a histogram + map summary of burn severity.
+    """Render a 2\u00d73 multi-panel summary grid of spectral fractions and burn severity.
+
+    Panels are arranged in two rows:
+
+    * Top row (left to right): Char fraction, Photosynthetic Vegetation, Non-PV
+    * Bottom row (left to right): Soil fraction, Composite Burn Index, Severity Class
+
+    Each panel uses its own colormap and scale drawn from :data:`PRODUCT_STYLES`,
+    has an individual colorbar, and shares the same UTM geographic formatting
+    (Easting / Northing km labels).
 
     Parameters
     ----------
-    severity:
-        Burn-severity raster (e.g., dNBR or RBR).
-    ax:
-        Existing Axes for the histogram panel.
-    bins:
-        Number of histogram bins.
+    fractions:
+        Dataset containing 2-D DataArrays for the spectral fraction products.
+        Required variables: ``"char"``, ``"pv"``, ``"npv"``, ``"soil"``.
+        All arrays must share the same ``x`` (easting) and ``y`` (northing)
+        coordinates in metres (UTM).
+    cbi:
+        2-D DataArray of the Composite Burn Index (CBI), sharing the same
+        spatial coordinates as *fractions*.
+    severity_class:
+        2-D DataArray of integer burn-severity classes (e.g. 0–5), sharing
+        the same spatial coordinates as *fractions*.
+    publication:
+        When ``True`` set DPI to 300 and use larger font sizes suitable for
+        publication-quality output.
+    figsize:
+        ``(width, height)`` in inches for the figure.  Defaults to
+        ``(18, 12)``.
 
     Returns
     -------
     matplotlib.figure.Figure
+        Figure containing 6 georeferenced panels (plus individual colorbars).
     """
-    raise NotImplementedError
+    import copy as _copy
+
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
+
+    # --- font sizes -------------------------------------------------------------
+    title_fontsize = 13
+    label_fontsize = 11
+    tick_labelsize = 9
+    if publication:
+        title_fontsize = 17
+        label_fontsize = 13
+        tick_labelsize = 11
+
+    # --- panel definitions: (product_name, data_array) -------------------------
+    panels: List[Tuple[str, xr.DataArray]] = [
+        ("char", fractions["char"]),
+        ("pv",   fractions["pv"]),
+        ("npv",  fractions["npv"]),
+        ("soil", fractions["soil"]),
+        ("cbi",  cbi),
+        ("severity", severity_class),
+    ]
+
+    # --- helper: compute imshow extent from a DataArray -----------------------
+    def _extent(da: xr.DataArray) -> Optional[list]:
+        x_coord: Optional[np.ndarray] = None
+        y_coord: Optional[np.ndarray] = None
+        for name in ("x", "easting", "lon", "longitude"):
+            if name in da.coords:
+                x_coord = da.coords[name].values
+                break
+        for name in ("y", "northing", "lat", "latitude"):
+            if name in da.coords:
+                y_coord = da.coords[name].values
+                break
+        if x_coord is None or y_coord is None:
+            return None
+        xmin = float(x_coord.min())
+        xmax = float(x_coord.max())
+        dx = (xmax - xmin) / max(len(x_coord) - 1, 1) if len(x_coord) > 1 else 1.0
+        ymin = float(y_coord.min())
+        ymax = float(y_coord.max())
+        dy = (ymax - ymin) / max(len(y_coord) - 1, 1) if len(y_coord) > 1 else 1.0
+        return [xmin - dx / 2, xmax + dx / 2, ymin - dy / 2, ymax + dy / 2]
+
+    # --- create 2x3 grid -------------------------------------------------------
+    fig, axes = plt.subplots(2, 3, figsize=figsize)
+
+    km_formatter = FuncFormatter(lambda v, _: f"{v / 1000:.0f}")
+
+    for ax, (product_name, da) in zip(axes.flat, panels):
+        style = PRODUCT_STYLES.get(product_name)
+        if style is not None:
+            cmap_name = style.cmap
+            vmin = style.vmin
+            vmax = style.vmax
+            cb_label = style.label
+        else:
+            logger.warning(
+                "plot_severity_summary: product %r not found in PRODUCT_STYLES; "
+                "using viridis with data-range scaling",
+                product_name,
+            )
+            cmap_name = "viridis"
+            vmin = None
+            vmax = None
+            cb_label = product_name
+
+        # --- NaN-masked array --------------------------------------------------
+        arr = np.ma.masked_invalid(da.values)
+
+        # --- colormap with transparent NaN pixels ------------------------------
+        cm_obj = _copy.copy(plt.get_cmap(cmap_name))
+        cm_obj.set_bad(color="white", alpha=0.0)
+
+        # --- compute geographic extent -----------------------------------------
+        ext = _extent(da)
+        use_geo = ext is not None
+
+        # --- render raster -----------------------------------------------------
+        im = ax.imshow(
+            arr,
+            extent=ext,
+            origin="lower",
+            cmap=cm_obj,
+            vmin=vmin,
+            vmax=vmax,
+            interpolation="nearest",
+        )
+
+        # --- UTM axis formatting -----------------------------------------------
+        if use_geo:
+            ax.xaxis.set_major_formatter(km_formatter)
+            ax.yaxis.set_major_formatter(km_formatter)
+            ax.set_xlabel("Easting (km)", fontsize=label_fontsize)
+            ax.set_ylabel("Northing (km)", fontsize=label_fontsize)
+            ax.tick_params(axis="both", labelsize=tick_labelsize)
+
+        ax.set_title(cb_label, fontsize=title_fontsize)
+
+        # --- per-panel colorbar ------------------------------------------------
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label(cb_label, fontsize=label_fontsize)
+        cbar.ax.tick_params(labelsize=tick_labelsize)
+
+    # --- spacing ---------------------------------------------------------------
+    fig.tight_layout()
+
+    # --- publication DPI -------------------------------------------------------
+    if publication:
+        fig.set_dpi(300)
+
+    return fig
 
 
 def plot_difference_map(

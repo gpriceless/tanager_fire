@@ -920,3 +920,229 @@ class TestPlotBeforeAfterBasemap:
             )
         finally:
             plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# plot_severity_summary — 2x3 multi-panel grid
+# ---------------------------------------------------------------------------
+
+
+def _make_fractions_ds(nx: int = 50, ny: int = 50) -> xr.Dataset:
+    """Return a synthetic fractions Dataset with x/y UTM coordinates."""
+    x = np.linspace(340_000, 350_000, nx)
+    y = np.linspace(3_780_000, 3_790_000, ny)
+    coords = {"y": y, "x": x}
+    rng = np.random.default_rng(42)
+    return xr.Dataset(
+        {
+            "char": xr.DataArray(rng.random((ny, nx)), coords=coords, dims=["y", "x"]),
+            "pv": xr.DataArray(rng.random((ny, nx)), coords=coords, dims=["y", "x"]),
+            "npv": xr.DataArray(rng.random((ny, nx)), coords=coords, dims=["y", "x"]),
+            "soil": xr.DataArray(rng.random((ny, nx)), coords=coords, dims=["y", "x"]),
+        }
+    )
+
+
+def _make_cbi_da(nx: int = 50, ny: int = 50) -> xr.DataArray:
+    """Return a synthetic CBI DataArray (values 0–3)."""
+    x = np.linspace(340_000, 350_000, nx)
+    y = np.linspace(3_780_000, 3_790_000, ny)
+    coords = {"y": y, "x": x}
+    rng = np.random.default_rng(7)
+    return xr.DataArray(rng.random((ny, nx)) * 3.0, coords=coords, dims=["y", "x"])
+
+
+def _make_severity_da(nx: int = 50, ny: int = 50) -> xr.DataArray:
+    """Return a synthetic severity-class DataArray (integer classes 0–4)."""
+    x = np.linspace(340_000, 350_000, nx)
+    y = np.linspace(3_780_000, 3_790_000, ny)
+    coords = {"y": y, "x": x}
+    rng = np.random.default_rng(13)
+    return xr.DataArray(
+        rng.integers(0, 5, (ny, nx)).astype(float), coords=coords, dims=["y", "x"]
+    )
+
+
+class TestPlotSeveritySummaryReturnsFigure:
+    """plot_severity_summary must return a matplotlib Figure."""
+
+    def test_returns_figure(self):
+        from matplotlib.figure import Figure
+        from tanager.visualization import plot_severity_summary
+
+        fractions = _make_fractions_ds()
+        cbi = _make_cbi_da()
+        severity = _make_severity_da()
+
+        fig = plot_severity_summary(fractions, cbi, severity)
+        try:
+            assert isinstance(fig, Figure)
+        finally:
+            plt.close(fig)
+
+
+class TestPlotSeveritySummarySixPanels:
+    """Figure must contain 6 panel axes (plus 6 individual colorbars = 12 total)."""
+
+    def test_at_least_six_axes(self):
+        """Minimum 6 axes: one per panel (colorbars bring the total higher)."""
+        from tanager.visualization import plot_severity_summary
+
+        fractions = _make_fractions_ds()
+        cbi = _make_cbi_da()
+        severity = _make_severity_da()
+
+        fig = plot_severity_summary(fractions, cbi, severity)
+        try:
+            assert len(fig.axes) >= 6, (
+                f"Expected >=6 axes (6 panels + colorbars), got {len(fig.axes)}"
+            )
+        finally:
+            plt.close(fig)
+
+    def test_twelve_axes_with_colorbars(self):
+        """Each panel gets its own colorbar, so 6 panels + 6 colorbars = 12."""
+        from tanager.visualization import plot_severity_summary
+
+        fractions = _make_fractions_ds()
+        cbi = _make_cbi_da()
+        severity = _make_severity_da()
+
+        fig = plot_severity_summary(fractions, cbi, severity)
+        try:
+            assert len(fig.axes) == 12, (
+                f"Expected 12 axes (6 panels + 6 colorbars), got {len(fig.axes)}"
+            )
+        finally:
+            plt.close(fig)
+
+
+class TestPlotSeveritySummaryUTMAxes:
+    """All 6 panel axes must render in UTM (metre) coordinates, not pixel indices."""
+
+    def test_all_panels_use_utm_xlim(self):
+        """xlim for every panel must be in UTM metres (> 100 000)."""
+        from tanager.visualization import plot_severity_summary
+
+        fractions = _make_fractions_ds()
+        cbi = _make_cbi_da()
+        severity = _make_severity_da()
+
+        fig = plot_severity_summary(fractions, cbi, severity)
+        try:
+            # The first 6 axes are the map panels; the remaining 6 are colorbars.
+            # Colorbar axes have very small xlim, so we test only the 6 map panels.
+            # We identify map panels by their xlim magnitude (UTM > 100 000).
+            map_axes = [ax for ax in fig.axes if ax.get_xlim()[1] > 100_000]
+            assert len(map_axes) == 6, (
+                f"Expected 6 UTM-scale map panels, found {len(map_axes)}"
+            )
+        finally:
+            plt.close(fig)
+
+    def test_all_panels_have_easting_label(self):
+        """All 6 map panels must carry 'Easting (km)' on the x-axis."""
+        from tanager.visualization import plot_severity_summary
+
+        fractions = _make_fractions_ds()
+        cbi = _make_cbi_da()
+        severity = _make_severity_da()
+
+        fig = plot_severity_summary(fractions, cbi, severity)
+        try:
+            map_axes = [ax for ax in fig.axes if ax.get_xlim()[1] > 100_000]
+            for ax in map_axes:
+                assert ax.get_xlabel() == "Easting (km)", (
+                    f"Panel xlabel {ax.get_xlabel()!r} should be 'Easting (km)'"
+                )
+        finally:
+            plt.close(fig)
+
+
+class TestPlotSeveritySummaryNaNHandling:
+    """NaN values in any panel must render without error."""
+
+    def test_nan_in_char_renders(self):
+        """A fractions dataset with NaN in char must produce a valid figure."""
+        from matplotlib.figure import Figure
+        from tanager.visualization import plot_severity_summary
+
+        fractions = _make_fractions_ds()
+        char_arr = fractions["char"].values.copy()
+        char_arr[10:30, 10:30] = np.nan
+        fractions["char"] = fractions["char"].copy(data=char_arr)
+        cbi = _make_cbi_da()
+        severity = _make_severity_da()
+
+        fig = plot_severity_summary(fractions, cbi, severity)
+        try:
+            assert isinstance(fig, Figure)
+        finally:
+            plt.close(fig)
+
+    def test_all_nan_cbi_renders(self):
+        """All-NaN CBI must produce a valid figure (masked, no crash)."""
+        from matplotlib.figure import Figure
+        from tanager.visualization import plot_severity_summary
+
+        fractions = _make_fractions_ds()
+        cbi = _make_cbi_da()
+        cbi_nan = cbi.copy(data=np.full(cbi.shape, np.nan))
+        severity = _make_severity_da()
+
+        fig = plot_severity_summary(fractions, cbi_nan, severity)
+        try:
+            assert isinstance(fig, Figure)
+        finally:
+            plt.close(fig)
+
+
+class TestPlotSeveritySummaryPublicationMode:
+    """publication=True must set figure DPI to 300."""
+
+    def test_publication_dpi(self):
+        from tanager.visualization import plot_severity_summary
+
+        fractions = _make_fractions_ds()
+        cbi = _make_cbi_da()
+        severity = _make_severity_da()
+
+        fig = plot_severity_summary(fractions, cbi, severity, publication=True)
+        try:
+            assert fig.get_dpi() == 300
+        finally:
+            plt.close(fig)
+
+    def test_default_not_publication_dpi(self):
+        """Without publication=True, DPI must not be forced to 300."""
+        from tanager.visualization import plot_severity_summary
+
+        fractions = _make_fractions_ds()
+        cbi = _make_cbi_da()
+        severity = _make_severity_da()
+
+        fig = plot_severity_summary(fractions, cbi, severity, publication=False)
+        try:
+            # matplotlib default is 100 dpi — just check it's not 300
+            assert fig.get_dpi() != 300
+        finally:
+            plt.close(fig)
+
+
+class TestPlotSeveritySummaryFigsize:
+    """Custom figsize must be honoured by the returned figure."""
+
+    def test_custom_figsize(self):
+        from tanager.visualization import plot_severity_summary
+
+        fractions = _make_fractions_ds()
+        cbi = _make_cbi_da()
+        severity = _make_severity_da()
+        custom_size = (12.0, 8.0)
+
+        fig = plot_severity_summary(fractions, cbi, severity, figsize=custom_size)
+        try:
+            w, h = fig.get_size_inches()
+            assert (w, h) == pytest.approx(custom_size)
+        finally:
+            plt.close(fig)
