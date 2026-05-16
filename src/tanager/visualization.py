@@ -973,25 +973,260 @@ def plot_difference_map(
 
 
 def interactive_map(
-    data: xr.DataArray,
-    *,
-    zoom: int = 10,
-    **kwargs: Any,
-) -> Any:
-    """Return a folium or ipyleaflet interactive map (notebook use).
+    layers: "list[tuple[xr.DataArray, str]] | None" = None,
+    center: "tuple[float, float] | None" = None,
+    zoom: int = 12,
+    perimeters: "str | Path | Any | None" = None,
+    basemap: str = "satellite",
+) -> "Map":
+    """Return a leafmap or folium interactive map for use in Jupyter notebooks.
 
     Parameters
     ----------
-    data:
-        Raster DataArray to overlay.
+    layers:
+        List of ``(DataArray, product_name)`` pairs.  Each DataArray is added
+        as a raster overlay with the colormap from :data:`PRODUCT_STYLES`.
+        Any CRS is accepted; rasters are reprojected to ``EPSG:4326`` as
+        needed for web-tile display.  Pass ``None`` to create a map with only
+        the basemap and any perimeter overlays.
+    center:
+        ``(latitude, longitude)`` for the initial map view.  Defaults to the
+        centroid of the first raster layer's geographic extent when *None*.
     zoom:
-        Initial zoom level.
+        Initial zoom level (Leaflet/folium integer zoom).  Defaults to 12.
+    perimeters:
+        Fire perimeter polygons.  Accepts:
+
+        * ``str`` or :class:`pathlib.Path` — path to a GeoJSON, Shapefile, or
+          GeoPackage; loaded via :func:`load_fire_perimeters`.
+        * ``geopandas.GeoDataFrame`` — used directly.
+        * ``None`` — no perimeter overlay.
+    basemap:
+        Basemap style name.  Used only for the leafmap backend.
+        ``"satellite"`` maps to ``"Esri.WorldImagery"``; ``"terrain"`` maps
+        to ``"Esri.WorldShadedRelief"``; ``"osm"`` maps to
+        ``"OpenStreetMap"``; any other string is passed through to leafmap
+        directly.  The folium fallback always uses OpenStreetMap tiles.
 
     Returns
     -------
-    folium.Map or ipyleaflet.Map
+    leafmap.Map or folium.Map
+        A displayable map widget (in Jupyter) or renderable folium Map.
+
+    Raises
+    ------
+    ImportError
+        When neither leafmap nor folium is installed.
+
+    Examples
+    --------
+    >>> from unittest.mock import patch, MagicMock
+    >>> with patch.dict("sys.modules", {"leafmap": MagicMock()}):
+    ...     pass  # would return a mocked Map object
     """
-    raise NotImplementedError
+    import tempfile
+    import os
+
+    # --- resolve perimeters -------------------------------------------------------
+    # Do this early so we can fail fast before expensive raster I/O.
+    perimeter_gdf = None
+    if perimeters is not None:
+        if isinstance(perimeters, (str, Path)):
+            perimeter_gdf = load_fire_perimeters(perimeters)
+        else:
+            # Assume GeoDataFrame-like
+            perimeter_gdf = perimeters
+
+    # --- helper: reproject DataArray to EPSG:4326 for web display ---------------
+    def _reproject_to_4326(da: xr.DataArray) -> xr.DataArray:
+        """Reproject *da* to EPSG:4326 if not already in that CRS."""
+        import rioxarray as _rxr  # noqa: F401 — registers .rio accessor
+
+        if da.rio.crs is None:
+            logger.warning(
+                "interactive_map: DataArray has no CRS; assuming EPSG:4326"
+            )
+            da = da.rio.write_crs("EPSG:4326")
+            return da
+
+        if str(da.rio.crs).upper() != "EPSG:4326":
+            da = da.rio.reproject("EPSG:4326")
+
+        return da
+
+    def _center_from_da(da: xr.DataArray) -> "tuple[float, float]":
+        """Return ``(lat, lon)`` centroid of *da* (must be in EPSG:4326)."""
+        lon_min = float(da.x.min())
+        lon_max = float(da.x.max())
+        lat_min = float(da.y.min())
+        lat_max = float(da.y.max())
+        return ((lat_min + lat_max) / 2.0, (lon_min + lon_max) / 2.0)
+
+    # --- reproject all layers to EPSG:4326 up-front ----------------------------
+    layers_4326: "list[tuple[xr.DataArray, str]]" = []
+    if layers:
+        for da, product_name in layers:
+            import rioxarray as _rxr  # noqa: F401
+            da_4326 = _reproject_to_4326(da)
+            layers_4326.append((da_4326, product_name))
+
+    # --- determine map center --------------------------------------------------
+    if center is None:
+        if layers_4326:
+            center = _center_from_da(layers_4326[0][0])
+        else:
+            # No layers: default to continental US
+            center = (39.5, -98.35)
+
+    # Basemap name mapping for leafmap
+    _BASEMAP_MAP = {
+        "satellite": "Esri.WorldImagery",
+        "terrain": "Esri.WorldShadedRelief",
+        "osm": "OpenStreetMap",
+    }
+
+    # --- attempt leafmap (primary) --------------------------------------------
+    try:
+        import leafmap  # lazy import
+
+        leafmap_basemap = _BASEMAP_MAP.get(basemap, basemap)
+
+        # leafmap.Map takes center as [lat, lon]
+        m = leafmap.Map(
+            center=list(center),
+            zoom=zoom,
+            basemap=leafmap_basemap,
+        )
+
+        # Track temp file paths so they remain on disk for the map session
+        _tmp_files: List[str] = []
+
+        for da_4326, product_name in layers_4326:
+            style = PRODUCT_STYLES.get(product_name)
+
+            cmap_name: Optional[str] = None
+            vmin_val: Optional[float] = None
+            vmax_val: Optional[float] = None
+            if style is not None:
+                cmap_name = style.cmap
+                vmin_val = style.vmin
+                vmax_val = style.vmax
+
+            # Write to a named temp GeoTIFF — leafmap.add_raster needs a file path
+            tmp_f = tempfile.NamedTemporaryFile(
+                suffix=".tif", delete=False, prefix="tanager_"
+            )
+            tmp_path = tmp_f.name
+            tmp_f.close()
+            _tmp_files.append(tmp_path)
+
+            da_4326.rio.to_raster(tmp_path)
+
+            m.add_raster(
+                tmp_path,
+                colormap=cmap_name,
+                vmin=vmin_val,
+                vmax=vmax_val,
+                layer_name=product_name,
+                zoom_to_layer=(len(_tmp_files) == 1),  # zoom on first layer only
+            )
+
+        # --- perimeter overlay ------------------------------------------------
+        if perimeter_gdf is not None and len(perimeter_gdf) > 0:
+            peri_4326 = perimeter_gdf.to_crs("EPSG:4326")
+            tmp_gj = tempfile.NamedTemporaryFile(
+                suffix=".geojson", delete=False, prefix="tanager_peri_"
+            )
+            tmp_gj_path = tmp_gj.name
+            tmp_gj.close()
+            peri_4326.to_file(tmp_gj_path, driver="GeoJSON")
+            _tmp_files.append(tmp_gj_path)
+
+            m.add_geojson(
+                tmp_gj_path,
+                layer_name="Fire Perimeters",
+                style={
+                    "color": "red",
+                    "weight": 2,
+                    "fillOpacity": 0.05,
+                },
+            )
+
+        m.add_layer_control()
+        return m
+
+    except ImportError:
+        pass  # fall through to folium
+
+    # --- attempt folium (fallback) --------------------------------------------
+    try:
+        import folium  # lazy import
+        import matplotlib.pyplot as _plt
+        import matplotlib.colors as _mpl_colors
+
+        m_folium = folium.Map(location=list(center), zoom_start=zoom)
+
+        for da_4326, product_name in layers_4326:
+            style = PRODUCT_STYLES.get(product_name)
+
+            cmap_name = "viridis"
+            vmin_val = None
+            vmax_val = None
+            if style is not None:
+                cmap_name = style.cmap
+                vmin_val = style.vmin
+                vmax_val = style.vmax
+
+            cmap_obj = _plt.get_cmap(cmap_name)
+            _vmin = vmin_val if vmin_val is not None else float(np.nanmin(da_4326.values))
+            _vmax = vmax_val if vmax_val is not None else float(np.nanmax(da_4326.values))
+            norm = _mpl_colors.Normalize(vmin=_vmin, vmax=_vmax)
+
+            # Build a closure-safe colormap callable for folium
+            def _make_colormap_fn(cm, nm):
+                def _fn(x):
+                    return cm(nm(x))
+                return _fn
+
+            colormap_fn = _make_colormap_fn(cmap_obj, norm)
+
+            lat_min = float(da_4326.y.min())
+            lat_max = float(da_4326.y.max())
+            lon_min = float(da_4326.x.min())
+            lon_max = float(da_4326.x.max())
+            bounds = [[lat_min, lon_min], [lat_max, lon_max]]
+
+            folium.raster_layers.ImageOverlay(
+                image=da_4326.values,
+                bounds=bounds,
+                colormap=colormap_fn,
+                name=product_name,
+                opacity=0.8,
+            ).add_to(m_folium)
+
+        # --- perimeter overlay ------------------------------------------------
+        if perimeter_gdf is not None and len(perimeter_gdf) > 0:
+            peri_4326 = perimeter_gdf.to_crs("EPSG:4326")
+            folium.GeoJson(
+                peri_4326.__geo_interface__,
+                name="Fire Perimeters",
+                style_function=lambda _: {
+                    "color": "red",
+                    "weight": 2,
+                    "fillOpacity": 0.05,
+                },
+            ).add_to(m_folium)
+
+        folium.LayerControl().add_to(m_folium)
+        return m_folium
+
+    except ImportError:
+        pass
+
+    raise ImportError(
+        "interactive_map requires either 'leafmap' or 'folium'. "
+        "Install one with: pip install leafmap  or  pip install folium"
+    )
 
 
 def show_product(
