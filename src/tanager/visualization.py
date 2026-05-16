@@ -576,31 +576,111 @@ def plot_severity_summary(
 
 
 def plot_difference_map(
-    before: xr.DataArray,
-    after: xr.DataArray,
-    *,
-    ax: Optional["Axes"] = None,
-    cmap: str = "RdBu_r",
-    **kwargs: Any,
+    diff_da: xr.DataArray,
+    product_name: str = "dnbr",
+    class_boundaries: Optional[Dict[str, float]] = None,
+    publication: bool = False,
+    figsize: Tuple[float, float] = (10, 8),
 ) -> "Figure":
-    """Render a signed difference map (after − before).
+    """Render a styled dNBR (or other difference) raster with severity contour overlays.
+
+    The base raster is rendered using :func:`plot_map` with the colormap and
+    scale from :data:`PRODUCT_STYLES`.  When *class_boundaries* are provided
+    (or when *product_name* is ``"dnbr"`` and the default USGS thresholds
+    apply), contour lines are drawn at each severity boundary and labelled with
+    the corresponding class name.
 
     Parameters
     ----------
-    before:
-        Pre-fire raster DataArray.
-    after:
-        Post-fire raster DataArray.
-    ax:
-        Existing Axes to draw into.
-    cmap:
-        Diverging colormap; defaults to ``"RdBu_r"``.
+    diff_da:
+        2-D DataArray of the difference product (e.g. dNBR) with ``x``
+        (easting) and ``y`` (northing) coordinates in metres (UTM).
+    product_name:
+        Key into :data:`PRODUCT_STYLES` used to select the colormap and scale
+        (e.g. ``"dnbr"``).  Defaults to ``"dnbr"``.
+    class_boundaries:
+        Mapping of class name → threshold value used to draw severity contours.
+        When *None* and *product_name* is ``"dnbr"``, the standard USGS
+        thresholds are applied::
+
+            {"Unburned": 0.1, "Low": 0.27, "Mod-Low": 0.44, "Mod-High": 0.66}
+
+        For any other *product_name* with ``class_boundaries=None``, no
+        contours are drawn.
+    publication:
+        When ``True`` set DPI to 300 and use larger font sizes.
+    figsize:
+        ``(width, height)`` in inches for the new figure.
 
     Returns
     -------
     matplotlib.figure.Figure
+        Figure containing the difference-map raster with labelled severity
+        contours (when applicable).
     """
-    raise NotImplementedError
+    # Default USGS dNBR severity thresholds (Miller & Thode 2007).
+    _USGS_DNBR_THRESHOLDS: Dict[str, float] = {
+        "Unburned": 0.1,
+        "Low": 0.27,
+        "Mod-Low": 0.44,
+        "Mod-High": 0.66,
+    }
+
+    # Resolve which boundaries to use.
+    if class_boundaries is None and product_name == "dnbr":
+        class_boundaries = _USGS_DNBR_THRESHOLDS
+
+    # Render the base raster using plot_map (reuses all style logic).
+    fig = plot_map(diff_da, product_name=product_name, publication=publication, figsize=figsize)
+    ax = fig.axes[0]
+
+    # Overlay contours when boundaries are provided.
+    if class_boundaries:
+        # Extract 1-D coordinate arrays from the DataArray.
+        x_coords: Optional[np.ndarray] = None
+        y_coords: Optional[np.ndarray] = None
+        for name in ("x", "easting", "lon", "longitude"):
+            if name in diff_da.coords:
+                x_coords = diff_da.coords[name].values
+                break
+        for name in ("y", "northing", "lat", "latitude"):
+            if name in diff_da.coords:
+                y_coords = diff_da.coords[name].values
+                break
+
+        data = diff_da.values  # contour handles NaN gracefully
+
+        # Sort boundary levels so contour draws them in ascending order.
+        sorted_levels = sorted(class_boundaries.values())
+
+        if x_coords is not None and y_coords is not None:
+            cs = ax.contour(
+                x_coords,
+                y_coords,
+                data,
+                levels=sorted_levels,
+                colors="black",
+                linewidths=1.0,
+            )
+        else:
+            # Fall back to pixel-index coordinates when no geo coords are present.
+            cs = ax.contour(
+                data,
+                levels=sorted_levels,
+                colors="black",
+                linewidths=1.0,
+            )
+
+        # Build a label dict: level → class name.  When two class names share
+        # the same threshold value only one label is shown (last one wins).
+        level_to_name: Dict[float, str] = {
+            v: k for k, v in class_boundaries.items()
+        }
+        fmt = {level: level_to_name.get(level, f"{level:.2f}") for level in sorted_levels}
+
+        ax.clabel(cs, fmt=fmt, fontsize=8)
+
+    return fig
 
 
 def interactive_map(
