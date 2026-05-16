@@ -513,30 +513,43 @@ def show_product(
 def save_figure(
     fig: "Figure",
     path: Union[str, Path],
-    *,
-    dpi: int = 150,
-    bbox_inches: str = "tight",
-    **kwargs: Any,
-) -> Path:
-    """Save a matplotlib figure to disk with sane defaults.
+    formats: List[str] = ["png"],
+) -> List[Path]:
+    """Save a matplotlib figure to disk in one or more formats.
 
     Parameters
     ----------
     fig:
         Figure to save.
     path:
-        Output file path.  The format is inferred from the extension.
-    dpi:
-        Resolution in dots per inch.
-    bbox_inches:
-        Passed to ``savefig``; ``"tight"`` clips excess whitespace.
+        Base output path **without** extension.  Each entry in *formats* is
+        appended as the file extension (e.g. "out/test" → "out/test.png").
+    formats:
+        List of format strings supported by matplotlib (e.g. ["png", "pdf",
+        "svg"]).  Defaults to ["png"].
 
     Returns
     -------
-    pathlib.Path
-        Resolved path of the saved file.
+    list[pathlib.Path]
+        Resolved :class:`pathlib.Path` objects for each written file, in the
+        same order as *formats*.
+
+    Examples
+    --------
+    >>> import matplotlib.pyplot as plt
+    >>> fig, ax = plt.subplots()
+    >>> paths = save_figure(fig, "outputs/my_figure", ["png", "pdf"])
+    >>> # writes outputs/my_figure.png and outputs/my_figure.pdf
     """
-    raise NotImplementedError
+    base = Path(path)
+    base.parent.mkdir(parents=True, exist_ok=True)
+    written: List[Path] = []
+    for fmt in formats:
+        out = base.parent / f"{base.name}.{fmt}"
+        fig.savefig(str(out), dpi=300, bbox_inches="tight")
+        written.append(out)
+        logger.debug("Saved figure to %s", out)
+    return written
 
 
 def add_basemap(
