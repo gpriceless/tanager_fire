@@ -631,7 +631,23 @@ def load_fire_perimeters(
     -------
     geopandas.GeoDataFrame
     """
-    raise NotImplementedError
+    import geopandas as gpd  # lazy import — not required in headless environments
+
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Fire perimeter file not found: {path}")
+
+    gdf = gpd.read_file(path)
+
+    if "geometry" not in gdf.columns:
+        raise ValueError(
+            f"File {path!r} has no geometry column; found columns: {list(gdf.columns)}"
+        )
+
+    if crs is not None:
+        gdf = gdf.to_crs(crs)
+
+    return gdf
 
 
 def overlay_perimeters(
