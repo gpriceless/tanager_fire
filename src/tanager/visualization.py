@@ -341,12 +341,7 @@ def plot_map(
 
     # --- optional basemap overlay ----------------------------------------------
     if basemap:
-        try:
-            add_basemap(ax)
-        except NotImplementedError:
-            logger.debug(
-                "add_basemap is not yet implemented; skipping basemap overlay"
-            )
+        add_basemap(ax)
 
     # --- publication DPI -------------------------------------------------------
     if publication:
@@ -554,25 +549,69 @@ def save_figure(
 
 def add_basemap(
     ax: "Axes",
-    *,
-    source: Optional[str] = None,
-    crs: Optional[Any] = None,
-    **kwargs: Any,
-) -> None:
+    source: str = "satellite",
+    alpha: float = 0.3,
+    crs: str = "EPSG:32611",
+) -> "Axes":
     """Overlay a web-tile basemap on *ax* using contextily.
+
+    The raster rendered onto *ax* should already be present (so the axes
+    extent is set) before calling this function.  The basemap tiles are
+    placed at ``zorder=0``, underneath any existing raster overlay.
 
     Parameters
     ----------
     ax:
-        Axes that already contains a raster in a projected CRS.
+        Axes that already contains a raster in a projected CRS.  The axes
+        extent must be set (i.e. a raster has been rendered) before calling
+        this function.
     source:
-        Tile provider URL or contextily provider object.  Defaults to
-        ``contextily.providers.OpenStreetMap.Mapnik``.
-    crs:
-        CRS of *ax*; auto-detected from the axes extent when ``None``.
-    """
-    raise NotImplementedError
+        Tile provider name.  One of:
 
+        * ``"satellite"`` — Esri World Imagery (default)
+        * ``"terrain"`` — Stadia StamenTerrain
+        * ``"osm"`` — OpenStreetMap Mapnik
+
+        Any other value falls back to ``"satellite"`` with a warning.
+    alpha:
+        Opacity of the basemap tile layer, in [0, 1].  Defaults to 0.3 so
+        the raster data drawn on top remains legible.
+    crs:
+        EPSG string for the coordinate reference system of *ax*.  Defaults
+        to ``"EPSG:32611"`` (UTM Zone 11N), the project standard CRS.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The same *ax* object, with basemap tiles added in-place (or
+        unchanged if the network request failed).
+    """
+    import contextily as ctx  # lazy import — not required in headless environments
+
+    # Map source string to a contextily provider.
+    _SOURCE_MAP = {
+        "satellite": ctx.providers.Esri.WorldImagery,
+        "terrain": ctx.providers.Stadia.StamenTerrain,
+        "osm": ctx.providers.OpenStreetMap.Mapnik,
+    }
+    provider = _SOURCE_MAP.get(source)
+    if provider is None:
+        logger.warning(
+            "add_basemap: unknown source %r; falling back to satellite tiles", source
+        )
+        provider = ctx.providers.Esri.WorldImagery
+
+    try:
+        ctx.add_basemap(ax, crs=crs, source=provider, alpha=alpha, zorder=0)
+    except Exception as exc:  # network errors, tile fetch failures, etc.
+        logger.warning(
+            "add_basemap: failed to fetch basemap tiles (source=%r, crs=%r): %s",
+            source,
+            crs,
+            exc,
+        )
+
+    return ax
 
 def load_fire_perimeters(
     path: Union[str, Path],

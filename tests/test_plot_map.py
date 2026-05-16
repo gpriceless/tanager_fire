@@ -229,15 +229,17 @@ class TestPlotMapPublicationMode:
 
 
 # ---------------------------------------------------------------------------
-# Basemap (stub) — graceful fallback
+# Basemap — integration with add_basemap
 # ---------------------------------------------------------------------------
 
 
 class TestPlotMapBasemap:
     def test_basemap_true_does_not_raise(self, utm_da):
         import matplotlib.pyplot as plt
-        # add_basemap raises NotImplementedError; plot_map should swallow it
-        fig = plot_map(utm_da, basemap=True)
+        from unittest.mock import patch
+        # Mock contextily to avoid network calls; add_basemap is now real.
+        with patch("contextily.add_basemap"):
+            fig = plot_map(utm_da, basemap=True)
         assert isinstance(fig, Figure)
         plt.close(fig)
 
