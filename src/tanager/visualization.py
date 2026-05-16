@@ -1230,26 +1230,59 @@ def interactive_map(
 
 
 def show_product(
-    product_name: str,
-    data: xr.DataArray,
-    **kwargs: Any,
-) -> "Figure":
-    """Convenience wrapper that applies :data:`PRODUCT_STYLES` and calls :func:`plot_map`.
+    da: xr.DataArray,
+    product_name: Optional[str] = None,
+    scene_date: Optional[str] = None,
+    interactive: bool = False,
+) -> "Figure | Map":
+    """Convenience helper to display a named Tanager product as a static or interactive map.
 
     Parameters
     ----------
+    da:
+        2-D DataArray to display.  When ``da.name`` is set and *product_name*
+        is not provided, the name attribute is used as the product key.
     product_name:
-        Key into :data:`PRODUCT_STYLES` (e.g. ``"severity"``, ``"lfmc"``).
-    data:
-        DataArray to render.
-    **kwargs:
-        Override any style key from :data:`PRODUCT_STYLES`.
+        Key into :data:`PRODUCT_STYLES` (e.g. ``"nbr"``, ``"dnbr"``).  When
+        *None*, the function attempts to read the name from ``da.name``.
+    scene_date:
+        Optional date string (e.g. ``"2025-01-23"``) appended to the figure
+        title for static maps.  Ignored when *interactive* is ``True``.
+    interactive:
+        When ``True`` return an interactive :func:`interactive_map` widget
+        (leafmap / folium).  When ``False`` (default) return a static
+        matplotlib :class:`~matplotlib.figure.Figure` with a basemap overlay.
 
     Returns
     -------
     matplotlib.figure.Figure
+        When *interactive* is ``False``.
+    leafmap.Map or folium.Map
+        When *interactive* is ``True``.
+
+    Examples
+    --------
+    >>> import matplotlib; matplotlib.use("Agg")
+    >>> import numpy as np, xarray as xr
+    >>> import rioxarray  # noqa: F401
+    >>> x = np.linspace(340000, 350000, 10)
+    >>> y = np.linspace(3780000, 3790000, 10)
+    >>> da = xr.DataArray(np.random.rand(10, 10), coords={"y": y, "x": x}, dims=["y", "x"])
+    >>> da = da.rio.write_crs("EPSG:32611")
+    >>> fig = show_product(da, "nbr", "2025-01-23")
+    >>> hasattr(fig, "axes")
+    True
     """
-    raise NotImplementedError
+    # Auto-detect product_name from da.name when not explicitly supplied.
+    resolved_name: Optional[str] = product_name
+    if resolved_name is None and getattr(da, "name", None):
+        resolved_name = da.name
+
+    if interactive:
+        return interactive_map([(da, resolved_name or "")])
+
+    title = f"{(resolved_name or '').upper()} {scene_date or ''}".strip()
+    return plot_map(da, product_name=resolved_name, title=title, basemap=True)
 
 
 def save_figure(
