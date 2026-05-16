@@ -73,6 +73,20 @@ _LAZY_EXPORTS: dict[str, str] = {
     "simulate_sensor": "validation",
     "load_aviris3_reference": "validation",
     "load_barc_reference": "validation",
+    # visualization --------------------------------------------------------
+    "plot_map": "visualization",
+    "plot_before_after": "visualization",
+    "plot_temporal_trajectory": "visualization",
+    "plot_severity_summary": "visualization",
+    "plot_difference_map": "visualization",
+    "interactive_map": "visualization",
+    "show_product": "visualization",
+    "save_figure": "visualization",
+    "add_basemap": "visualization",
+    "load_fire_perimeters": "visualization",
+    "overlay_perimeters": "visualization",
+    "add_scalebar": "visualization",
+    "PRODUCT_STYLES": "visualization",
 }
 
 
