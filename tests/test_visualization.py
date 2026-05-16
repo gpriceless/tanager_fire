@@ -2087,3 +2087,170 @@ class TestPublicationIntegration:
             )
         finally:
             plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Smoke tests — end-to-end import and invocation from top-level tanager package
+# ---------------------------------------------------------------------------
+
+
+class TestSmoke:
+    """End-to-end smoke tests that exercise the public API as a user would.
+
+    Every test imports from the top-level ``tanager`` package (not from
+    ``tanager.visualization``) to validate the lazy-export mechanism.  Synthetic
+    georeferenced DataArrays with EPSG:32611 CRS are used throughout.
+    """
+
+    # ------------------------------------------------------------------
+    # Shared helper — must not rely on class-level state because pytest
+    # does not guarantee fixture injection into plain helper methods.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _make_nbr_da(nx: int = 50, ny: int = 50, seed: int = 0) -> xr.DataArray:
+        """Return a 50x50 synthetic DataArray in NBR range with EPSG:32611 CRS."""
+        x = np.linspace(340_000, 350_000, nx)
+        y = np.linspace(3_780_000, 3_790_000, ny)
+        rng = np.random.default_rng(seed)
+        # NBR range is approximately -1.0 to 1.0; use uniform draw in that range.
+        data = rng.uniform(-1.0, 1.0, (ny, nx)).astype(np.float32)
+        da = xr.DataArray(data, coords={"y": y, "x": x}, dims=["y", "x"])
+        return da.rio.write_crs("EPSG:32611")
+
+    # ------------------------------------------------------------------
+    # 1. plot_map — imported from top-level tanager
+    # ------------------------------------------------------------------
+
+    @pytest.mark.smoke
+    def test_smoke_import_and_plot_map(self):
+        """Import plot_map from tanager (top-level) and call it on synthetic NBR data.
+
+        Validates:
+        - The lazy export mechanism resolves ``tanager.plot_map``.
+        - plot_map returns a matplotlib Figure with at least one axis.
+        - Passing ``product_name='nbr'`` and a title does not raise.
+        """
+        import tanager
+        from matplotlib.figure import Figure
+
+        da = self._make_nbr_da()
+        fig = tanager.plot_map(da, product_name="nbr", title="Smoke Test")
+        try:
+            assert isinstance(fig, Figure), (
+                f"plot_map must return a matplotlib Figure, got {type(fig).__name__}"
+            )
+            assert len(fig.get_axes()) >= 1, "plot_map must produce at least one axis"
+        finally:
+            plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # 2. save_figure — persist a plot_map figure to the tmp_path fixture
+    # ------------------------------------------------------------------
+
+    @pytest.mark.smoke
+    def test_smoke_save_figure(self, tmp_path):
+        """Call tanager.save_figure on a figure produced by tanager.plot_map.
+
+        Validates:
+        - ``save_figure`` is importable from top-level ``tanager``.
+        - The returned list contains a path that exists on disk.
+        - The file is non-empty (has bytes written).
+        """
+        import tanager
+        from matplotlib.figure import Figure
+
+        da = self._make_nbr_da(seed=1)
+        fig = tanager.plot_map(da, product_name="nbr", title="Save Smoke Test")
+        try:
+            paths = tanager.save_figure(fig, tmp_path / "smoke", formats=["png"])
+        finally:
+            plt.close(fig)
+
+        assert len(paths) == 1, f"Expected 1 output path, got {len(paths)}"
+        out = paths[0]
+        assert out.exists(), f"save_figure did not write {out}"
+        assert out.stat().st_size > 0, f"save_figure wrote an empty file at {out}"
+
+    # ------------------------------------------------------------------
+    # 3. interactive_map — exercised with a mock so the test is hermetic
+    # ------------------------------------------------------------------
+
+    @pytest.mark.smoke
+    def test_smoke_interactive_map(self):
+        """Call tanager.interactive_map on a synthetic DataArray layer.
+
+        The test patches leafmap to avoid requiring a Jupyter kernel or network.
+        Validates:
+        - ``interactive_map`` is importable from top-level ``tanager``.
+        - The function returns a non-None object (the Map).
+        - leafmap.Map is called (i.e. the layer wiring path is exercised).
+        """
+        import sys
+        from unittest.mock import MagicMock, patch
+        import tanager
+
+        da = self._make_nbr_da(seed=2)
+
+        mock_leafmap = MagicMock()
+        mock_map = MagicMock()
+        mock_leafmap.Map.return_value = mock_map
+
+        with patch.dict("sys.modules", {"leafmap": mock_leafmap}):
+            result = tanager.interactive_map([(da, "nbr")])
+
+        assert result is not None, "interactive_map must return a non-None Map object"
+        assert mock_leafmap.Map.called, (
+            "leafmap.Map must be constructed during interactive_map"
+        )
+
+    # ------------------------------------------------------------------
+    # 4. Full golden-path pipeline: plot_map → save_figure → interactive_map
+    # ------------------------------------------------------------------
+
+    @pytest.mark.smoke
+    def test_smoke_full_pipeline(self, tmp_path):
+        """Single test exercising the complete user-facing workflow.
+
+        Steps:
+        1. Create a synthetic EPSG:32611 DataArray.
+        2. Render it with ``tanager.plot_map``.
+        3. Persist the figure with ``tanager.save_figure``.
+        4. Build an interactive map with ``tanager.interactive_map``.
+
+        All three calls must succeed without raising, and each produces a
+        verifiable artefact (Figure type, existing file, non-None Map).
+        """
+        import sys
+        from unittest.mock import MagicMock, patch
+        import tanager
+        from matplotlib.figure import Figure
+
+        da = self._make_nbr_da(seed=3)
+
+        # --- Step 1 & 2: plot_map -------------------------------------------------
+        fig = tanager.plot_map(da, product_name="nbr", title="Golden Path Smoke")
+        try:
+            assert isinstance(fig, Figure), (
+                f"plot_map must return a Figure, got {type(fig).__name__}"
+            )
+
+            # --- Step 3: save_figure ----------------------------------------------
+            paths = tanager.save_figure(fig, tmp_path / "pipeline_smoke", formats=["png"])
+        finally:
+            plt.close(fig)
+
+        assert len(paths) == 1, f"save_figure must write exactly 1 PNG, got {len(paths)}"
+        assert paths[0].exists(), f"save_figure output not found: {paths[0]}"
+        assert paths[0].stat().st_size > 0, "save_figure wrote empty PNG"
+
+        # --- Step 4: interactive_map (mocked leafmap) -----------------------------
+        mock_leafmap = MagicMock()
+        mock_map = MagicMock()
+        mock_leafmap.Map.return_value = mock_map
+
+        with patch.dict("sys.modules", {"leafmap": mock_leafmap}):
+            result = tanager.interactive_map([(da, "nbr")])
+
+        assert result is not None, "interactive_map must return a non-None Map"
+        assert mock_leafmap.Map.called, "leafmap.Map must be invoked in the full pipeline"

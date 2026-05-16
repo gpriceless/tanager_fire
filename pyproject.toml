@@ -57,6 +57,7 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 markers = [
     "integration: tests that depend on bulk data assets (real Tanager HDF5 scenes)",
+    "smoke: end-to-end smoke tests exercising the public API as a user would",
 ]
 
 [tool.mypy]
