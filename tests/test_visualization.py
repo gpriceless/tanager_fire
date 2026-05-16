@@ -313,3 +313,364 @@ class TestSaveFigureCreatesDirectories:
                 assert paths[0].stat().st_size > 0
         finally:
             plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — basemap, perimeters, and scalebar working together
+# ---------------------------------------------------------------------------
+
+
+class TestAddBasemapWithMockedContextily:
+    """add_basemap must call contextily and return ax unchanged when mocked."""
+
+    def test_mock_is_called(self, georef_da):
+        """Verify contextily.add_basemap is invoked when add_basemap is called."""
+        from unittest.mock import patch
+        from tanager.visualization import add_basemap
+
+        fig, ax = plt.subplots()
+        ax.set_xlim(340_000, 350_000)
+        ax.set_ylim(3_780_000, 3_790_000)
+        try:
+            with patch("contextily.add_basemap") as mock_ctx:
+                result = add_basemap(ax)
+            assert mock_ctx.called
+        finally:
+            plt.close(fig)
+
+    def test_ax_returned_unchanged(self, georef_da):
+        """add_basemap must return the exact same Axes object."""
+        from unittest.mock import patch
+        from tanager.visualization import add_basemap
+
+        fig, ax = plt.subplots()
+        ax.set_xlim(340_000, 350_000)
+        ax.set_ylim(3_780_000, 3_790_000)
+        try:
+            with patch("contextily.add_basemap"):
+                result = add_basemap(ax)
+            assert result is ax
+        finally:
+            plt.close(fig)
+
+    def test_xlim_ylim_preserved_after_call(self, georef_da):
+        """Axes limits must not be altered by add_basemap."""
+        from unittest.mock import patch
+        from tanager.visualization import add_basemap
+
+        fig, ax = plt.subplots()
+        ax.set_xlim(340_000, 350_000)
+        ax.set_ylim(3_780_000, 3_790_000)
+        xlim_before = ax.get_xlim()
+        ylim_before = ax.get_ylim()
+        try:
+            with patch("contextily.add_basemap"):
+                add_basemap(ax)
+            assert ax.get_xlim() == xlim_before
+            assert ax.get_ylim() == ylim_before
+        finally:
+            plt.close(fig)
+
+
+class TestAddBasemapOfflineGracefulDegradation:
+    """add_basemap must not raise and must return ax when contextily fails."""
+
+    def test_oserror_does_not_propagate(self):
+        """OSError from contextily is swallowed; no exception escapes."""
+        from unittest.mock import patch
+        from tanager.visualization import add_basemap
+
+        fig, ax = plt.subplots()
+        ax.set_xlim(340_000, 350_000)
+        ax.set_ylim(3_780_000, 3_790_000)
+        try:
+            with patch("contextily.add_basemap", side_effect=OSError("Network unreachable")):
+                result = add_basemap(ax)
+            assert result is ax
+        finally:
+            plt.close(fig)
+
+    def test_ax_returned_after_network_failure(self):
+        """ax is returned even when the tile fetch raises."""
+        from unittest.mock import patch
+        from tanager.visualization import add_basemap
+
+        fig, ax = plt.subplots()
+        ax.set_xlim(340_000, 350_000)
+        ax.set_ylim(3_780_000, 3_790_000)
+        try:
+            with patch("contextily.add_basemap", side_effect=OSError("DNS failure")):
+                result = add_basemap(ax)
+            # ax is unchanged; no AttributeError, no None return
+            assert result is ax
+        finally:
+            plt.close(fig)
+
+
+class TestLoadFirePerimetersWithSyntheticGeoJSON:
+    """load_fire_perimeters reads a small synthetic GeoJSON fixture correctly."""
+
+    def test_returns_geodataframe_with_geometry(self):
+        """A minimal GeoJSON file produces a GeoDataFrame with a geometry column."""
+        import json
+        import geopandas as gpd
+        from tanager.visualization import load_fire_perimeters
+
+        feature = {
+            "type": "Feature",
+            "properties": {"name": "Test Fire"},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [-118.5, 34.0],
+                        [-118.4, 34.0],
+                        [-118.4, 34.1],
+                        [-118.5, 34.1],
+                        [-118.5, 34.0],
+                    ]
+                ],
+            },
+        }
+        geojson = {"type": "FeatureCollection", "features": [feature]}
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".geojson", mode="w", delete=False, dir=tempfile.gettempdir()
+        ) as f:
+            json.dump(geojson, f)
+            tmp_path = Path(f.name)
+
+        try:
+            gdf = load_fire_perimeters(tmp_path)
+            assert isinstance(gdf, gpd.GeoDataFrame)
+            assert "geometry" in gdf.columns
+            assert len(gdf) == 1
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def test_feature_property_accessible(self):
+        """Properties from the GeoJSON are available as GeoDataFrame columns."""
+        import json
+        from tanager.visualization import load_fire_perimeters
+
+        feature = {
+            "type": "Feature",
+            "properties": {"name": "Integration Fire", "area_ha": 500},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [-118.3, 34.0],
+                        [-118.2, 34.0],
+                        [-118.2, 34.1],
+                        [-118.3, 34.1],
+                        [-118.3, 34.0],
+                    ]
+                ],
+            },
+        }
+        geojson = {"type": "FeatureCollection", "features": [feature]}
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".geojson", mode="w", delete=False, dir=tempfile.gettempdir()
+        ) as f:
+            json.dump(geojson, f)
+            tmp_path = Path(f.name)
+
+        try:
+            gdf = load_fire_perimeters(tmp_path)
+            assert gdf.iloc[0]["name"] == "Integration Fire"
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+
+class TestOverlayPerimetersDrawsOnAxes:
+    """overlay_perimeters must add collections or lines to the axes."""
+
+    def _make_synthetic_gdf(self):
+        """Return a one-polygon GeoDataFrame in EPSG:4326."""
+        import geopandas as gpd
+        from shapely.geometry import Polygon
+
+        poly = Polygon(
+            [(-118.5, 34.0), (-118.4, 34.0), (-118.4, 34.1), (-118.5, 34.1)]
+        )
+        return gpd.GeoDataFrame(
+            {"name": ["Synthetic Fire"]}, geometry=[poly], crs="EPSG:4326"
+        )
+
+    def test_collection_added_to_axes(self):
+        """At least one collection or line must appear on ax after the call."""
+        from tanager.visualization import overlay_perimeters
+
+        fig, ax = plt.subplots()
+        ax.set_xlim(340_000, 350_000)
+        ax.set_ylim(3_780_000, 3_790_000)
+        gdf = self._make_synthetic_gdf()
+        try:
+            overlay_perimeters(ax, gdf, label=False)
+            assert len(ax.collections) > 0 or len(ax.lines) > 0
+        finally:
+            plt.close(fig)
+
+    def test_returns_same_axes_object(self):
+        """overlay_perimeters must return the identical Axes passed in."""
+        from tanager.visualization import overlay_perimeters
+
+        fig, ax = plt.subplots()
+        ax.set_xlim(340_000, 350_000)
+        ax.set_ylim(3_780_000, 3_790_000)
+        gdf = self._make_synthetic_gdf()
+        try:
+            result = overlay_perimeters(ax, gdf, label=False)
+            assert result is ax
+        finally:
+            plt.close(fig)
+
+    def test_label_text_appears_when_requested(self):
+        """When label=True, a text annotation is added to ax."""
+        from tanager.visualization import overlay_perimeters
+
+        fig, ax = plt.subplots()
+        ax.set_xlim(340_000, 350_000)
+        ax.set_ylim(3_780_000, 3_790_000)
+        gdf = self._make_synthetic_gdf()
+        try:
+            overlay_perimeters(ax, gdf, label=True)
+            assert len(ax.texts) > 0
+        finally:
+            plt.close(fig)
+
+
+class TestAddScalebarAddsPatch:
+    """add_scalebar must add a Rectangle patch with the correct width."""
+
+    def _make_ax(self):
+        """Return a Figure and Axes with UTM-scale limits."""
+        fig, ax = plt.subplots()
+        ax.set_xlim(340_000, 350_000)
+        ax.set_ylim(3_780_000, 3_790_000)
+        return fig, ax
+
+    def test_patch_is_added(self):
+        """A Rectangle patch must appear in ax.patches."""
+        from tanager.visualization import add_scalebar
+
+        fig, ax = self._make_ax()
+        try:
+            add_scalebar(ax, 5)
+            assert len(ax.patches) >= 1
+        finally:
+            plt.close(fig)
+
+    def test_patch_width_matches_requested_km(self):
+        """Bar width in data coordinates must equal length_km * 1000 metres."""
+        from tanager.visualization import add_scalebar
+
+        fig, ax = self._make_ax()
+        try:
+            add_scalebar(ax, 5)
+            rect = ax.patches[0]
+            assert rect.get_width() == pytest.approx(5000.0)
+        finally:
+            plt.close(fig)
+
+    def test_text_label_is_present(self):
+        """A '5 km' label must be placed above the bar."""
+        from tanager.visualization import add_scalebar
+
+        fig, ax = self._make_ax()
+        try:
+            add_scalebar(ax, 5)
+            labels = [t.get_text() for t in ax.texts]
+            assert "5 km" in labels
+        finally:
+            plt.close(fig)
+
+    def test_different_lengths_produce_correct_widths(self):
+        """1 km and 10 km requests must produce 1 000 and 10 000 m widths."""
+        from tanager.visualization import add_scalebar
+
+        for km, expected_m in [(1, 1000.0), (10, 10_000.0)]:
+            fig, ax = self._make_ax()
+            try:
+                add_scalebar(ax, km)
+                assert ax.patches[0].get_width() == pytest.approx(expected_m)
+            finally:
+                plt.close(fig)
+
+
+class TestEndToEndPlotMapBasemapPerimetersScalebar:
+    """Full pipeline: plot_map → overlay_perimeters → add_scalebar, mocked basemap."""
+
+    def test_all_elements_present_on_figure(self, georef_da):
+        """After running the full pipeline the figure must have all expected elements."""
+        import json
+        import geopandas as gpd
+        from shapely.geometry import Polygon
+        from unittest.mock import patch
+        from tanager.visualization import plot_map, overlay_perimeters, add_scalebar
+
+        # Step 1: render the base map with a mocked basemap tile call.
+        with patch("contextily.add_basemap"):
+            fig = plot_map(georef_da, basemap=True, product_name="nbr")
+
+        try:
+            ax = fig.get_axes()[0]
+
+            # Step 2: overlay a synthetic perimeter.
+            poly = Polygon(
+                [(-118.5, 34.0), (-118.4, 34.0), (-118.4, 34.1), (-118.5, 34.1)]
+            )
+            gdf = gpd.GeoDataFrame(
+                {"name": ["Integration Fire"]}, geometry=[poly], crs="EPSG:4326"
+            )
+            overlay_perimeters(ax, gdf, label=True)
+
+            # Step 3: add a scale bar.
+            add_scalebar(ax, 5)
+
+            # Assertions — figure has all expected elements.
+            from matplotlib.figure import Figure
+            assert isinstance(fig, Figure)
+
+            # Colorbar axis present (from plot_map).
+            assert len(fig.get_axes()) > 1
+
+            # Perimeter boundary: collections or lines.
+            assert len(ax.collections) > 0 or len(ax.lines) > 0
+
+            # Scalebar patch present.
+            assert len(ax.patches) >= 1
+
+            # Scalebar label text present.
+            scalebar_labels = [t.get_text() for t in ax.texts if "km" in t.get_text()]
+            assert scalebar_labels, "Expected at least one '… km' label from add_scalebar"
+        finally:
+            plt.close(fig)
+
+    def test_network_failure_does_not_abort_pipeline(self, georef_da):
+        """Even when the basemap tile fetch fails, the rest of the pipeline works."""
+        import geopandas as gpd
+        from shapely.geometry import Polygon
+        from unittest.mock import patch
+        from tanager.visualization import plot_map, overlay_perimeters, add_scalebar
+        from matplotlib.figure import Figure
+
+        with patch("contextily.add_basemap", side_effect=OSError("no network")):
+            fig = plot_map(georef_da, basemap=True)
+
+        try:
+            assert isinstance(fig, Figure)
+            ax = fig.get_axes()[0]
+
+            poly = Polygon(
+                [(-118.5, 34.0), (-118.4, 34.0), (-118.4, 34.1), (-118.5, 34.1)]
+            )
+            gdf = gpd.GeoDataFrame(geometry=[poly], crs="EPSG:4326")
+            overlay_perimeters(ax, gdf, label=False)
+            add_scalebar(ax, 3)
+
+            assert len(ax.patches) >= 1
+        finally:
+            plt.close(fig)
