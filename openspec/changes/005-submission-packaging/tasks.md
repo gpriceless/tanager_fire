@@ -92,7 +92,7 @@
 ### Section 2: Data Discovery Notebook
 <!-- execution_mode: sequential -->
 
-- [ ] Create `notebooks/01-data-discovery.ipynb` — STAC catalog traversal and scene inventory
+- [x] Create `notebooks/01-data-discovery.ipynb` — STAC catalog traversal and scene inventory
   <!-- files: notebooks/01-data-discovery.ipynb (create) -->
   <!-- structure:
        1. Introduction: Tanager-1 sensor overview, LA wildfire context (Jan 7, 2025 fires)
@@ -113,7 +113,7 @@
 ### Section 3: Burn Severity Notebook
 <!-- execution_mode: sequential -->
 
-- [ ] Create `notebooks/02-burn-severity.ipynb` — MESMA burn severity analysis
+- [x] Create `notebooks/02-burn-severity.ipynb` — MESMA burn severity analysis
   <!-- files: notebooks/02-burn-severity.ipynb (create) -->
   <!-- structure:
        1. Introduction: why hyperspectral for burn severity, MESMA methodology overview
@@ -144,7 +144,7 @@
 ### Section 4: Fuel Moisture Notebook
 <!-- execution_mode: sequential -->
 
-- [ ] Create `notebooks/03-fuel-moisture.ipynb` — LFMC estimation pipeline
+- [x] Create `notebooks/03-fuel-moisture.ipynb` — LFMC estimation pipeline
   <!-- files: notebooks/03-fuel-moisture.ipynb (create) -->
   <!-- structure:
        1. Introduction: LFMC importance for wildfire risk, hyperspectral advantage
@@ -174,7 +174,7 @@
 ### Section 5: Temporal Recovery Notebook
 <!-- execution_mode: sequential -->
 
-- [ ] Create `notebooks/04-temporal-recovery.ipynb` — multi-temporal trajectory analysis
+- [x] Create `notebooks/04-temporal-recovery.ipynb` — multi-temporal trajectory analysis
   <!-- files: notebooks/04-temporal-recovery.ipynb (create) -->
   <!-- structure:
        1. Introduction: temporal monitoring value, 7-date Tanager time series
@@ -197,7 +197,7 @@
 ### Section 6: Sensor Comparison Notebook
 <!-- execution_mode: sequential -->
 
-- [ ] Create `notebooks/05-sensor-comparison.ipynb` — Tanager spectral advantage quantification
+- [x] Create `notebooks/05-sensor-comparison.ipynb` — Tanager spectral advantage quantification
   <!-- files: notebooks/05-sensor-comparison.ipynb (create) -->
   <!-- structure:
        1. Introduction: why spectral resolution matters, Tanager vs competitors
@@ -224,7 +224,7 @@
 ### Section 7: Technical Memo
 <!-- execution_mode: sequential -->
 
-- [ ] Write `docs/technical-memo.md` — competition technical memo (1-3 pages)
+- [x] Write `docs/technical-memo.md` — competition technical memo (1-3 pages)
   <!-- files: docs/technical-memo.md (create) -->
   <!-- structure:
        Abstract (100 words), Introduction (problem + approach), Methodology (MESMA, LFMC, temporal),
@@ -242,7 +242,7 @@
 ### Section 8: Figure Export & Submission Artifacts
 <!-- execution_mode: sequential -->
 
-- [ ] Export publication figures from notebooks to `figures/` directory
+- [x] Export publication figures from notebooks to `figures/` directory
   <!-- files: figures/ (create directory + PNG files) -->
   <!-- pattern: tanager.save_figure(fig, "figures/name", ["png"]) — already defaults to 300 DPI.
        Signature: save_figure(fig, path, formats=["png"]). path is base WITHOUT extension.
@@ -250,7 +250,7 @@
        severity_map.png, lfmc_map.png, temporal_trajectory.png, sensor_comparison.png -->
   <!-- acceptance: figures/ contains 6+ PNG files at 300 DPI -->
 
-- [ ] Create `Makefile` with notebook execution and figure export targets
+- [x] Create `Makefile` with notebook execution and figure export targets
   <!-- files: Makefile (create) -->
   <!-- targets:
        install: pip install -e ".[dev,notebook]"
@@ -262,7 +262,7 @@
        all: install test lint notebooks figures -->
   <!-- acceptance: make test and make lint succeed -->
 
-- [ ] Update `.gitignore` for notebook outputs and large data files
+- [x] Update `.gitignore` for notebook outputs and large data files
   <!-- files: .gitignore (modify) -->
   <!-- gotcha: ALREADY PRESENT: .ipynb_checkpoints/, *.tif, *.tiff, data/raw/*.
        Only need to ADD: data/reference/*.db (if Globe-LFMC subset is large),
@@ -270,7 +270,7 @@
        Verify outputs/ directory is selectively tracked. -->
   <!-- acceptance: git status shows no unintended tracked files -->
 
-- [ ] Final README polish — insert actual figure paths and results summary
+- [x] Final README polish — insert actual figure paths and results summary
   <!-- files: README.md (modify) -->
   <!-- update: replace placeholder figure paths with actual figures/ paths.
        Add actual R², RMSE numbers from notebook results to "Results at a Glance" section. -->
