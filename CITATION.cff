@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "FireSpec"
+abstract: >-
+  FireSpec is a hyperspectral wildfire analysis pipeline built for the
+  Planet Tanager Open Data Competition, providing burn severity mapping
+  and live fuel moisture content (LFMC) estimation from Tanager-1
+  426-band hyperspectral imagery.
+authors:
+  - family-names: Price
+    given-names: Gabriel
+repository-code: "https://github.com/gpriceless/tanager_fire"
+license: MIT
+version: 0.1.0
+date-released: "2026-07-09"
+keywords:
+  - hyperspectral
+  - wildfire
+  - MESMA
+  - LFMC
+  - Tanager-1
+  - burn-severity
+  - live-fuel-moisture
+  - spectral-unmixing

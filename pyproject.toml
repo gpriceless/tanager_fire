@@ -37,6 +37,10 @@ dev = [
     "ruff",
     "mypy",
 ]
+notebook = [
+    "jupyter",
+    "nbformat",
+]
 mesma = ["mesma>=1.0.8"]
 # splib07-loader is not on PyPI; repo https://github.com/RobertSparworthy/splib07-loader.git
 # returned "Repository not found" as of 2026-04-28. Install manually if the repo becomes
