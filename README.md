@@ -36,7 +36,7 @@ Full derivations in [`notebooks/02-burn-severity.ipynb`](notebooks/02-burn-sever
 | Burn Severity | Temporal Recovery |
 | --- | --- |
 | ![Burn severity map](figures/severity_map.png) | ![Temporal recovery trajectory](figures/temporal_trajectory.png) |
-| MESMA-derived CBI / BARC severity classification over the Palisades/Eaton burn scar | NBR/NDVI/LFMC recovery trajectory across 7 Tanager acquisitions, Dec 2024 – Sep 2025 |
+| MESMA-derived CBI / BARC severity classification over the Palisades/Eaton burn scar | NBR/NDVI/LFMC recovery trajectory across 4 Tanager scenes spanning 2 fire complexes (Palisades and Hughes), Dec 2024 – Apr 2025 |
 
 | Live Fuel Moisture | Recovery by Severity Class |
 | --- | --- |
@@ -117,9 +117,9 @@ LFMC estimation, temporal trajectories, sensor comparison).
 | Notebook | Description |
 | --- | --- |
 | [`01-data-discovery.ipynb`](notebooks/01-data-discovery.ipynb) | STAC catalog traversal and scene inventory — discovering and cataloging the LA wildfire time series |
-| [`02-burn-severity.ipynb`](notebooks/02-burn-severity.ipynb) | MESMA spectral unmixing and CBI/BARC burn severity estimation, validated against USGS BARC maps |
+| [`02-burn-severity.ipynb`](notebooks/02-burn-severity.ipynb) | MESMA spectral unmixing and CBI/BARC burn severity estimation, with internal-consistency validation against dNBR (framework supports USGS BARC ground truth when reference data is available) |
 | [`03-fuel-moisture.ipynb`](notebooks/03-fuel-moisture.ipynb) | LFMC estimation via spectral water indices (SAI, continuum removal) and PLSR regression |
-| [`04-temporal-recovery.ipynb`](notebooks/04-temporal-recovery.ipynb) | Multi-temporal vegetation recovery trajectories across 7 Tanager acquisitions |
+| [`04-temporal-recovery.ipynb`](notebooks/04-temporal-recovery.ipynb) | Multi-temporal vegetation recovery trajectories across 4 downloaded Tanager scenes forming 2 disjoint fire-complex pairs (Palisades and Hughes), Dec 2024 – Apr 2025 |
 | [`05-sensor-comparison.ipynb`](notebooks/05-sensor-comparison.ipynb) | Tanager-1 vs EMIT / PRISMA / Sentinel-2 spectral degradation and information-loss analysis |
 
 Notebooks ship with pre-computed outputs. To reproduce from scratch:
