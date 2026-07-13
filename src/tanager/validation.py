@@ -10,7 +10,9 @@ Public API (lazy-imported via :mod:`tanager`):
 * :func:`load_aviris3_reference` — load AVIRIS-3 fraction product, aggregate to
   Tanager 30 m grid.
 * :func:`load_barc_reference` — load USGS BARC classified severity GeoTIFF and
-  align to a Tanager scene grid.
+  align to a Tanager scene grid. Also accepts BAER Soil Burn Severity (SBS)
+  rasters via the ``code_map`` kwarg (use :data:`SBS_CODE_MAP`).
+* :data:`SBS_CODE_MAP` — class-code mapping for BAER SBS 4-class rasters.
 * :func:`compute_accuracy` — R², RMSE, MAE, bias for continuous predictions;
   overall accuracy, Cohen's kappa, F1, confusion matrix for classified
   predictions.
@@ -87,6 +89,20 @@ _BARC_CODE_MAP: Mapping[int, int] = {
     3: 3,  # Moderate-High
     4: 4,  # High
     5: 4,  # MTBS "Increased Greenness" sometimes coded 5 — fold into High class
+}
+
+# BAER Soil Burn Severity (SBS) products use the same 4-class BARC scheme after
+# field correction.  The raster codes are identical to BARC (1=Low through
+# 4=High); 0 or NoData = outside mapped area.  Pass this as ``code_map`` to
+# :func:`load_barc_reference` when loading SBS rasters; pixels outside the
+# mapped perimeter (code 0) are treated as nodata (-1) so they don't pollute
+# accuracy metrics.
+SBS_CODE_MAP: Mapping[int, int] = {
+    0: -1,  # Outside mapped perimeter → nodata
+    1: 1,   # Low (field-corrected)
+    2: 2,   # Moderate-Low (field-corrected)
+    3: 3,   # Moderate-High (field-corrected)
+    4: 4,   # High (field-corrected)
 }
 
 
@@ -357,15 +373,141 @@ def _align_to_target_grid(
     array: xr.DataArray,
     target: xr.DataArray,
 ) -> xr.DataArray:
-    """Align ``array`` onto the spatial coordinates of ``target`` (nearest)."""
+    """Align ``array`` onto the spatial coordinates of ``target`` (nearest).
+
+    When both arrays carry a ``crs`` attribute and the CRS differs, the source
+    array is reprojected via ``rasterio.warp.reproject`` (nearest-neighbour,
+    appropriate for integer-coded severity classes).  When the CRS matches (or
+    is absent), a lightweight ``xarray.interp`` is used instead.
+
+    After alignment, a coverage fraction is computed and logged — if less than
+    10 % of the target grid is covered by valid (non-nodata) source pixels, a
+    warning is emitted so partial-overlap situations are caught early.
+    """
     if "y" not in target.coords or "x" not in target.coords:
         return array
-    return array.interp(
-        y=target["y"],
-        x=target["x"],
-        method="nearest",
-        kwargs={"fill_value": -1},
-    ).astype(array.dtype)
+
+    src_crs = array.attrs.get("crs")
+    tgt_crs = target.attrs.get("crs")
+
+    if src_crs and tgt_crs and str(src_crs) != str(tgt_crs):
+        aligned = _reproject_classified(array, target, src_crs, tgt_crs)
+    else:
+        if src_crs and tgt_crs:
+            logger.info(
+                "_align_to_target_grid: CRS match (%s), using coordinate interpolation",
+                src_crs,
+            )
+        elif not src_crs or not tgt_crs:
+            logger.warning(
+                "_align_to_target_grid: CRS metadata missing on %s; "
+                "assuming grids share the same CRS",
+                "source" if not src_crs else "target",
+            )
+        aligned = array.interp(
+            y=target["y"],
+            x=target["x"],
+            method="nearest",
+            kwargs={"fill_value": -1},
+        ).astype(array.dtype)
+
+    nodata_val = array.attrs.get("nodata", -1)
+    n_total = aligned.size
+    n_valid = int(np.sum(np.asarray(aligned.values) != nodata_val))
+    coverage = n_valid / n_total if n_total > 0 else 0.0
+    logger.info(
+        "_align_to_target_grid: coverage %.1f%% (%d/%d valid pixels)",
+        coverage * 100.0,
+        n_valid,
+        n_total,
+    )
+    if coverage < 0.10:
+        logger.warning(
+            "_align_to_target_grid: only %.1f%% of target grid covered by "
+            "reference data — check that the reference footprint overlaps "
+            "the Tanager scene extent",
+            coverage * 100.0,
+        )
+
+    return aligned
+
+
+def _reproject_classified(
+    source: xr.DataArray,
+    target: xr.DataArray,
+    src_crs: str,
+    dst_crs: str,
+) -> xr.DataArray:
+    """Reproject an integer-coded raster onto a target grid via rasterio.
+
+    Uses nearest-neighbour resampling (the only valid method for classified
+    data) and fills areas outside the source extent with the nodata sentinel.
+    """
+    import rasterio
+    from rasterio.crs import CRS
+    from rasterio.enums import Resampling
+    from rasterio.transform import from_bounds
+    from rasterio.warp import reproject
+
+    nodata_val = source.attrs.get("nodata", -1)
+
+    src_y = np.asarray(source.coords["y"].values, dtype=np.float64)
+    src_x = np.asarray(source.coords["x"].values, dtype=np.float64)
+    src_dy = abs(float(src_y[1] - src_y[0])) if len(src_y) > 1 else 30.0
+    src_dx = abs(float(src_x[1] - src_x[0])) if len(src_x) > 1 else 30.0
+    src_transform = from_bounds(
+        float(src_x.min()) - src_dx / 2,
+        float(src_y.min()) - src_dy / 2,
+        float(src_x.max()) + src_dx / 2,
+        float(src_y.max()) + src_dy / 2,
+        len(src_x),
+        len(src_y),
+    )
+
+    dst_y = np.asarray(target.coords["y"].values, dtype=np.float64)
+    dst_x = np.asarray(target.coords["x"].values, dtype=np.float64)
+    dst_dy = abs(float(dst_y[1] - dst_y[0])) if len(dst_y) > 1 else 30.0
+    dst_dx = abs(float(dst_x[1] - dst_x[0])) if len(dst_x) > 1 else 30.0
+    dst_transform = from_bounds(
+        float(dst_x.min()) - dst_dx / 2,
+        float(dst_y.min()) - dst_dy / 2,
+        float(dst_x.max()) + dst_dx / 2,
+        float(dst_y.max()) + dst_dy / 2,
+        len(dst_x),
+        len(dst_y),
+    )
+
+    src_data = np.asarray(source.values, dtype=np.int16)
+    dst_data = np.full((len(dst_y), len(dst_x)), nodata_val, dtype=np.int16)
+
+    logger.info(
+        "_reproject_classified: reprojecting %s → %s (%d×%d → %d×%d)",
+        src_crs,
+        dst_crs,
+        len(src_y),
+        len(src_x),
+        len(dst_y),
+        len(dst_x),
+    )
+
+    reproject(
+        source=src_data,
+        destination=dst_data,
+        src_transform=src_transform,
+        src_crs=CRS.from_user_input(src_crs),
+        dst_transform=dst_transform,
+        dst_crs=CRS.from_user_input(dst_crs),
+        resampling=Resampling.nearest,
+        src_nodata=nodata_val,
+        dst_nodata=nodata_val,
+    )
+
+    return xr.DataArray(
+        dst_data,
+        dims=("y", "x"),
+        coords={"y": dst_y, "x": dst_x},
+        attrs={**source.attrs, "crs": dst_crs},
+    )
 
 
 _ArrayLike = Union[np.ndarray, xr.DataArray, Sequence[float]]

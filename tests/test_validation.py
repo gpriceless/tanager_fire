@@ -459,3 +459,61 @@ class TestLoadBARCReference:
     def test_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             validation.load_barc_reference(tmp_path / "missing.tif")
+
+    def test_sbs_code_map_zeros_become_nodata(self, tmp_path):
+        codes = np.array([[0, 1, 2], [3, 4, 0]], dtype=np.int16)
+        path = tmp_path / "sbs.tif"
+        self._write_barc_tif(path, codes)
+        da = validation.load_barc_reference(path, code_map=validation.SBS_CODE_MAP)
+        expected = np.array([[-1, 1, 2], [3, 4, -1]], dtype=np.int16)
+        np.testing.assert_array_equal(da.values, expected)
+
+    def test_target_grid_alignment_same_crs(self, tmp_path):
+        rasterio = pytest.importorskip("rasterio")
+        from rasterio.transform import from_origin
+
+        codes = np.array([[1, 2], [3, 4]], dtype=np.int16)
+        path = tmp_path / "barc_align.tif"
+        self._write_barc_tif(path, codes)
+
+        target = xr.DataArray(
+            np.zeros((2, 2)),
+            dims=("y", "x"),
+            coords={"y": [45.0, 15.0], "x": [15.0, 45.0]},
+            attrs={"crs": "EPSG:32611"},
+        )
+        da = validation.load_barc_reference(path, target_grid=target)
+        assert da.shape == (2, 2)
+        assert da.attrs["source"] == "barc"
+
+    def test_target_grid_alignment_different_crs(self, tmp_path):
+        rasterio = pytest.importorskip("rasterio")
+        from rasterio.transform import from_origin
+
+        codes = np.full((20, 20), 3, dtype=np.int16)
+        path = tmp_path / "barc_reproject.tif"
+        with rasterio.open(
+            path,
+            "w",
+            driver="GTiff",
+            height=20,
+            width=20,
+            count=1,
+            dtype="int16",
+            crs="EPSG:32611",
+            transform=from_origin(370000.0, 3780000.0, 30.0, 30.0),
+        ) as dst:
+            dst.write(codes, 1)
+
+        target = xr.DataArray(
+            np.zeros((5, 5)),
+            dims=("y", "x"),
+            coords={
+                "y": np.linspace(3779700.0, 3779400.0, 5),
+                "x": np.linspace(370060.0, 370360.0, 5),
+            },
+            attrs={"crs": "EPSG:32611"},
+        )
+        da = validation.load_barc_reference(path, target_grid=target)
+        assert da.shape == (5, 5)
+        assert (da.values == 3).sum() > 0
