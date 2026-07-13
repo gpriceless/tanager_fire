@@ -479,7 +479,7 @@ def build_fire_library(
             "ecostress_sqlite, frames_dir, or scene_pre/scene_post + regions is required."
         )
 
-    merged = build_hybrid_library(*sources) if False else _merge_sources_in_order(sources)
+    merged = _merge_sources_in_order(sources)
     selected = select_endmembers_incob(merged, max_per_class=max_per_class)
 
     try:
