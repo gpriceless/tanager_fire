@@ -88,9 +88,11 @@ scenes = tanager.list_fire_scenes()          # browse the fire collection
 tanager.download_scene(scenes[0], "data/raw/fire/")
 ```
 
-A small set of reference scenes covering the LA wildfires (pre-fire, immediate post-fire, and
-recovery timepoints) ships under `data/raw/fire/` for quick experimentation; the full time
-series is fetched on demand through the STAC catalog above.
+No scene data ships with the repository — `data/raw/` is gitignored, so a fresh clone starts
+empty. Download the LA wildfire scenes (pre-fire, immediate post-fire, and recovery timepoints)
+into `data/raw/fire/` using the snippet above; see
+[`notebooks/01-data-discovery.ipynb`](notebooks/01-data-discovery.ipynb) for a full walkthrough
+of STAC catalog traversal and scene selection.
 
 ---
 
@@ -105,8 +107,8 @@ nbr = tanager.nbr(ds)
 tanager.plot_map(nbr, product_name="nbr")
 ```
 
-This loads a post-fire ortho-rectified surface reflectance scene, computes the Normalized Burn
-Ratio, and renders a georeferenced map. See [`docs/api-reference.md`](docs/api-reference.md)
+This loads a post-fire ortho-rectified surface reflectance scene (downloaded via the Data
+section above), computes the Normalized Burn Ratio, and renders a georeferenced map. See [`docs/api-reference.md`](docs/api-reference.md)
 for the full public API, or the notebooks below for end-to-end workflows (severity mapping,
 LFMC estimation, temporal trajectories, sensor comparison).
 
