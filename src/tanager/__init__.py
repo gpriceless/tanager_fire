@@ -72,6 +72,8 @@ _LAZY_EXPORTS: dict[str, str] = {
     "compare_sensors": "validation",
     "simulate_sensor": "validation",
     "load_aviris3_reference": "validation",
+    "load_aviris3_reflectance": "validation",
+    "cross_validate_aviris3": "validation",
     "load_barc_reference": "validation",
     "SBS_CODE_MAP": "validation",
     # visualization --------------------------------------------------------

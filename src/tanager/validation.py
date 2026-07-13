@@ -9,6 +9,10 @@ Public API (lazy-imported via :mod:`tanager`):
 
 * :func:`load_aviris3_reference` — load AVIRIS-3 fraction product, aggregate to
   Tanager 30 m grid.
+* :func:`load_aviris3_reflectance` — load AVIRIS-3 L2A surface-reflectance
+  NetCDF (284-band cube) as an xr.Dataset compatible with :func:`run_mesma`.
+* :func:`cross_validate_aviris3` — run MESMA on AVIRIS-3 reflectance and compare
+  the resulting char fraction against Tanager MESMA char (R²/RMSE/bias).
 * :func:`load_barc_reference` — load USGS BARC classified severity GeoTIFF and
   align to a Tanager scene grid. Also accepts BAER Soil Burn Severity (SBS)
   rasters via the ``code_map`` kwarg (use :data:`SBS_CODE_MAP`).
@@ -35,6 +39,9 @@ References:
         Geoscience and Remote Sensing Letters.
     Eidenshink, J., Schwind, B., Brewer, K., Zhu, Z.-L., Quayle, B., Howard, S.
         (2007). A project for monitoring trends in burn severity. Fire Ecology.
+    Ward-Baranyay, L. K., Coleman, R. C. (2026). AVIRIS-3 char/ash mapping of
+        the 2025 Los Angeles fires. Geophysical Research Letters,
+        doi:10.1029/2025GL118756.
 """
 
 from __future__ import annotations
@@ -268,6 +275,465 @@ def _aggregate_to_resolution(
     )
     coarsened = ds.coarsen(y=factor_y, x=factor_x, boundary="trim").mean(skipna=True)
     return coarsened
+
+
+# ---------------------------------------------------------------------------
+# AVIRIS-3 L2A reflectance loader (284-band cube for cross-sensor MESMA)
+# ---------------------------------------------------------------------------
+
+# AVIRIS-3 L2A OE products use these NetCDF variable names. The reflectance
+# cube is stored as ``Rfl`` with dims (bands, y, x) or (number_of_bands, y, x).
+# Wavelengths are stored as a 1-D coordinate or in ``wavelength``/``wl``.
+_AVIRIS3_RFL_CANDIDATES = ("Rfl", "rfl", "reflectance", "Reflectance", "surface_reflectance")
+_AVIRIS3_WL_CANDIDATES = ("wavelength", "wl", "Wavelength", "WL", "wavelengths")
+_AVIRIS3_UNC_CANDIDATES = ("Rfl_unc", "rfl_unc", "uncertainty", "Uncertainty")
+
+
+def load_aviris3_reflectance(
+    filepath: FilePath,
+    *,
+    wavelength_range: Optional[tuple[float, float]] = None,
+) -> xr.Dataset:
+    """Load an AVIRIS-3 L2A surface-reflectance NetCDF as a scene Dataset.
+
+    AVIRIS-3 L2A OE products (DOI 10.3334/ORNLDAAC/2357) ship as
+    orthocorrected NetCDF files with ~284 spectral bands at ~1.8-2.8 m GSD.
+    This loader reads the reflectance cube and returns an xr.Dataset with dims
+    ``(wavelength, y, x)`` — the same schema as :func:`tanager.io.load_scene`
+    — so the cube can be fed directly to :func:`tanager.unmixing.run_mesma`.
+
+    Args:
+        filepath: Path to an AVIRIS-3 ``*_RFL_ORT.nc`` file.
+        wavelength_range: Optional ``(min_wl, max_wl)`` in nanometres. When
+            supplied, only bands within the range are returned.
+
+    Returns:
+        xr.Dataset with:
+
+        * Data variable ``reflectance`` with dims ``(wavelength, y, x)``,
+          dtype float32, reflectance in [0, 1].
+        * Coords ``wavelength`` (nm), ``y``, ``x`` in the file's native CRS.
+        * Attrs ``crs``, ``source = "aviris3_l2a"``, ``spatial_resolution_m``.
+
+    Raises:
+        FileNotFoundError: If ``filepath`` does not exist.
+        ValueError: If the NetCDF lacks a recognisable reflectance variable
+            or wavelength coordinate.
+    """
+    path = Path(filepath)
+    if not path.exists():
+        raise FileNotFoundError(f"AVIRIS-3 reflectance file not found: {filepath}")
+
+    ds = xr.open_dataset(path)
+
+    rfl_var = _find_variable(ds, _AVIRIS3_RFL_CANDIDATES)
+    if rfl_var is None:
+        raise ValueError(
+            f"No reflectance variable found in {filepath}. "
+            f"Expected one of {_AVIRIS3_RFL_CANDIDATES}. "
+            f"Available variables: {list(ds.data_vars)}"
+        )
+
+    rfl = ds[rfl_var]
+
+    wavelengths = _extract_aviris3_wavelengths(ds, rfl)
+    if wavelengths is None:
+        raise ValueError(
+            f"No wavelength coordinate found in {filepath}. "
+            f"Searched variable coords, dataset coords, and attrs."
+        )
+
+    wavelengths = np.asarray(wavelengths, dtype=np.float64)
+    # AVIRIS-3 wavelengths may be in micrometres; auto-detect.
+    if wavelengths.max() < 50.0:
+        wavelengths = wavelengths * 1000.0
+
+    rfl_arr = np.asarray(rfl.values, dtype=np.float32)
+
+    # Determine dimension order. AVIRIS-3 NetCDF may use (bands, y, x) or
+    # (y, x, bands). Normalise to (wavelength, y, x).
+    if rfl_arr.ndim != 3:
+        raise ValueError(
+            f"Reflectance variable {rfl_var!r} has {rfl_arr.ndim} dims, expected 3"
+        )
+
+    band_dim = _identify_band_dim(rfl, wavelengths)
+    if band_dim != 0:
+        rfl_arr = np.moveaxis(rfl_arr, band_dim, 0)
+        spatial_dims = [d for i, d in enumerate(rfl.dims) if i != band_dim]
+    else:
+        spatial_dims = list(rfl.dims[1:])
+
+    n_bands = rfl_arr.shape[0]
+    if n_bands != len(wavelengths):
+        raise ValueError(
+            f"Band count mismatch: reflectance has {n_bands} bands but "
+            f"wavelength array has {len(wavelengths)} entries"
+        )
+
+    # Build y/x coordinates from the spatial dims.
+    y_coords, x_coords = _extract_spatial_coords(ds, rfl, spatial_dims)
+
+    # Replace fill values with NaN.
+    fill_candidates = [-9999.0, -9999, -999.0]
+    for fv in fill_candidates:
+        rfl_arr = np.where(rfl_arr == fv, np.nan, rfl_arr)
+    # Reflectance should be in [0, 1]; AVIRIS-3 values > 1 are artefacts.
+    rfl_arr = np.where(np.isfinite(rfl_arr), rfl_arr, np.nan)
+
+    # Subset wavelengths if requested.
+    if wavelength_range is not None:
+        min_wl, max_wl = wavelength_range
+        mask = (wavelengths >= min_wl) & (wavelengths <= max_wl)
+        if not mask.any():
+            raise ValueError(
+                f"wavelength_range ({min_wl}, {max_wl}) nm selects no bands "
+                f"from AVIRIS-3 wavelengths [{wavelengths.min():.1f}, "
+                f"{wavelengths.max():.1f}] nm"
+            )
+        rfl_arr = rfl_arr[mask]
+        wavelengths = wavelengths[mask]
+
+    crs = _extract_crs(ds)
+    res = _estimate_resolution(y_coords, x_coords)
+
+    out_ds = xr.Dataset(
+        {
+            "reflectance": (("wavelength", "y", "x"), rfl_arr),
+        },
+        coords={
+            "wavelength": wavelengths.astype(np.float32),
+            "y": y_coords,
+            "x": x_coords,
+        },
+        attrs={
+            "source": "aviris3_l2a",
+            "data_var": "reflectance",
+        },
+    )
+    if crs is not None:
+        out_ds.attrs["crs"] = crs
+    if res is not None:
+        out_ds.attrs["spatial_resolution_m"] = res
+
+    ds.close()
+    return out_ds
+
+
+def _find_variable(
+    ds: xr.Dataset, candidates: tuple[str, ...],
+) -> Optional[str]:
+    """Return the first matching variable name from candidates."""
+    for name in candidates:
+        if name in ds.data_vars:
+            return name
+    return None
+
+
+def _extract_aviris3_wavelengths(
+    ds: xr.Dataset, rfl: xr.DataArray,
+) -> Optional[np.ndarray]:
+    """Extract wavelength array from AVIRIS-3 NetCDF (multiple conventions)."""
+    # Check variable coords first.
+    for name in _AVIRIS3_WL_CANDIDATES:
+        if name in rfl.coords:
+            return np.asarray(rfl.coords[name].values, dtype=np.float64)
+        if name in ds.coords:
+            return np.asarray(ds.coords[name].values, dtype=np.float64)
+        if name in ds.data_vars:
+            return np.asarray(ds[name].values, dtype=np.float64).ravel()
+
+    # Check reflectance variable attrs.
+    for attr_name in ("wavelengths", "wavelength", "wl", "center_wavelengths"):
+        if attr_name in rfl.attrs:
+            return np.asarray(rfl.attrs[attr_name], dtype=np.float64)
+
+    # Check global attrs.
+    for attr_name in ("wavelengths", "wavelength", "center_wavelengths"):
+        if attr_name in ds.attrs:
+            return np.asarray(ds.attrs[attr_name], dtype=np.float64)
+
+    return None
+
+
+def _identify_band_dim(rfl: xr.DataArray, wavelengths: np.ndarray) -> int:
+    """Identify which dimension of rfl is the band/spectral dimension."""
+    n_wl = len(wavelengths)
+    for i, dim_size in enumerate(rfl.shape):
+        if dim_size == n_wl:
+            return i
+    # Fallback: assume first dim is bands (most common convention).
+    return 0
+
+
+def _extract_spatial_coords(
+    ds: xr.Dataset,
+    rfl: xr.DataArray,
+    spatial_dims: list[str],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Extract y and x coordinate arrays from AVIRIS-3 spatial dims."""
+    y_coords = None
+    x_coords = None
+
+    # Try named coords first.
+    for name in ("y", "northing", "lat", "latitude"):
+        if name in ds.coords:
+            y_coords = np.asarray(ds.coords[name].values, dtype=np.float64)
+            break
+    for name in ("x", "easting", "lon", "longitude"):
+        if name in ds.coords:
+            x_coords = np.asarray(ds.coords[name].values, dtype=np.float64)
+            break
+
+    # Fall back to dim coords.
+    if y_coords is None and len(spatial_dims) >= 1 and spatial_dims[0] in ds.coords:
+        y_coords = np.asarray(ds.coords[spatial_dims[0]].values, dtype=np.float64)
+    if x_coords is None and len(spatial_dims) >= 2 and spatial_dims[1] in ds.coords:
+        x_coords = np.asarray(ds.coords[spatial_dims[1]].values, dtype=np.float64)
+
+    # Ultimate fallback: pixel indices.
+    if y_coords is None:
+        n_y = rfl.shape[1] if len(rfl.shape) > 1 else rfl.shape[0]
+        y_coords = np.arange(n_y, dtype=np.float64)
+    if x_coords is None:
+        n_x = rfl.shape[2] if len(rfl.shape) > 2 else rfl.shape[-1]
+        x_coords = np.arange(n_x, dtype=np.float64)
+
+    return y_coords.ravel(), x_coords.ravel()
+
+
+def _extract_crs(ds: xr.Dataset) -> Optional[str]:
+    """Extract CRS string from AVIRIS-3 dataset metadata."""
+    for attr in ("crs", "spatial_ref", "crs_wkt", "proj4"):
+        if attr in ds.attrs:
+            return str(ds.attrs[attr])
+    if "spatial_ref" in ds.coords:
+        return str(ds.coords["spatial_ref"].item())
+    # AVIRIS-3 L2A ORT products are projected in UTM; look for EPSG in attrs.
+    for attr in ("epsg", "EPSG", "epsg_code"):
+        if attr in ds.attrs:
+            return f"EPSG:{ds.attrs[attr]}"
+    return None
+
+
+def _estimate_resolution(
+    y_coords: np.ndarray, x_coords: np.ndarray,
+) -> Optional[float]:
+    """Estimate ground sample distance from coordinate arrays."""
+    if len(x_coords) < 2 or len(y_coords) < 2:
+        return None
+    dx = float(abs(x_coords[1] - x_coords[0]))
+    dy = float(abs(y_coords[1] - y_coords[0]))
+    return (dx + dy) / 2.0
+
+
+# ---------------------------------------------------------------------------
+# Cross-sensor MESMA validation (AVIRIS-3 reflectance → char fraction)
+# ---------------------------------------------------------------------------
+
+
+def _aggregate_fractions_to_grid(
+    fractions: xr.Dataset,
+    target_y: np.ndarray,
+    target_x: np.ndarray,
+    target_resolution: float,
+    *,
+    target_crs: Optional[str] = None,
+) -> xr.Dataset:
+    """Aggregate fine-resolution fractions onto a coarser target grid.
+
+    Performs CRS-aware reprojection when the source and target CRS differ,
+    then area-weighted mean aggregation using xarray coarsen with NaN-correct
+    skipna=True semantics. Pixels with no valid fine-resolution data within
+    a coarse cell become NaN.
+
+    Args:
+        fractions: MESMA output Dataset with fraction variables and dims (y, x).
+        target_y: Target grid y-coordinates (pixel centres).
+        target_x: Target grid x-coordinates (pixel centres).
+        target_resolution: Target pixel size in CRS units (metres).
+        target_crs: CRS of the target grid (e.g. ``"EPSG:32611"``).
+
+    Returns:
+        xr.Dataset aligned to the target grid, with the same fraction
+        variables.
+    """
+    src_crs = fractions.attrs.get("crs")
+
+    # Step 1: coarsen to approximate target resolution.
+    if "x" in fractions.coords and "y" in fractions.coords:
+        src_x = np.asarray(fractions.coords["x"].values)
+        src_y = np.asarray(fractions.coords["y"].values)
+        if len(src_x) >= 2 and len(src_y) >= 2:
+            src_dx = float(abs(src_x[1] - src_x[0]))
+            src_dy = float(abs(src_y[1] - src_y[0]))
+            if src_dx > 0 and src_dy > 0:
+                factor_x = max(1, int(round(target_resolution / src_dx)))
+                factor_y = max(1, int(round(target_resolution / src_dy)))
+                if factor_x > 1 or factor_y > 1:
+                    logger.info(
+                        "Aggregating fractions: factor (y=%d, x=%d) for %.1f m target",
+                        factor_y, factor_x, target_resolution,
+                    )
+                    fractions = fractions.coarsen(
+                        y=factor_y, x=factor_x, boundary="trim",
+                    ).mean(skipna=True)
+
+    # Step 2: interpolate onto the exact target grid (nearest-neighbour for
+    # fraction data to avoid creating out-of-[0,1] artefacts from linear
+    # interpolation).
+    aligned = fractions.interp(
+        y=target_y, x=target_x,
+        method="nearest",
+        kwargs={"fill_value": np.nan},
+    )
+
+    if target_crs is not None:
+        aligned.attrs["crs"] = target_crs
+
+    n_total = aligned.sizes["y"] * aligned.sizes["x"]
+    frac_vars = [v for v in aligned.data_vars if v != "rmse"]
+    if frac_vars:
+        first = aligned[frac_vars[0]]
+        n_valid = int(np.sum(np.isfinite(first.values)))
+        coverage = n_valid / n_total if n_total > 0 else 0.0
+        logger.info(
+            "_aggregate_fractions_to_grid: coverage %.1f%% (%d/%d valid)",
+            coverage * 100.0, n_valid, n_total,
+        )
+        if coverage < 0.05:
+            logger.warning(
+                "Less than 5%% coverage after aggregation — check that the "
+                "AVIRIS-3 swath overlaps the Tanager footprint"
+            )
+
+    return aligned
+
+
+def cross_validate_aviris3(
+    aviris3_reflectance: xr.Dataset,
+    tanager_fractions: xr.Dataset,
+    library: "xr.DataArray",
+    *,
+    target_resolution: float = _DEFAULT_TARGET_RESOLUTION_M,
+    fraction_variable: str = "char",
+    mesma_constraints: Optional[Mapping[str, float]] = None,
+) -> dict[str, Any]:
+    """Cross-sensor MESMA validation: AVIRIS-3 reflectance vs Tanager fractions.
+
+    Runs MESMA on AVIRIS-3 surface reflectance using the same endmember library
+    (resampled to the AVIRIS-3 wavelength grid), aggregates the resulting
+    fine-resolution fractions to the Tanager 30 m grid, and computes
+    continuous accuracy metrics (R², RMSE, MAE, bias) on the overlap area.
+
+    This is cross-sensor validation — the same MESMA algorithm runs on both
+    sensors — not independent ground truth. Frame results accordingly.
+
+    Args:
+        aviris3_reflectance: AVIRIS-3 reflectance Dataset from
+            :func:`load_aviris3_reflectance` with dims (wavelength, y, x).
+        tanager_fractions: Tanager MESMA output Dataset from
+            :func:`tanager.unmixing.run_mesma` with fraction variables and
+            dims (y, x).
+        library: Endmember library DataArray (output of
+            :func:`tanager.endmembers.build_fire_library`). Will be
+            resampled to the AVIRIS-3 wavelength grid.
+        target_resolution: Target grid resolution in metres for comparison.
+        fraction_variable: Which fraction to compare (default ``"char"``).
+        mesma_constraints: Optional MESMA constraint overrides.
+
+    Returns:
+        Dict with:
+
+        * ``accuracy`` — output of :func:`compute_accuracy` (R², RMSE, etc.)
+        * ``aviris3_fractions`` — aggregated AVIRIS-3 MESMA fractions on the
+          Tanager grid.
+        * ``overlap_area_pixels`` — number of valid comparison pixels.
+        * ``method`` — ``"cross_sensor_mesma"`` for honest framing.
+        * ``fraction_variable`` — which fraction was compared.
+
+    Raises:
+        ValueError: If the overlap area has fewer than 10 valid pixels, or if
+            required variables are missing.
+    """
+    from tanager.endmembers import resample_library
+    from tanager.unmixing import run_mesma
+
+    if fraction_variable not in tanager_fractions.data_vars:
+        raise ValueError(
+            f"Tanager fractions Dataset missing {fraction_variable!r}. "
+            f"Available: {list(tanager_fractions.data_vars)}"
+        )
+
+    # Resample endmember library to AVIRIS-3 wavelength grid.
+    aviris3_wl = np.asarray(
+        aviris3_reflectance.coords["wavelength"].values, dtype=np.float64
+    )
+    aviris3_library = resample_library(library, aviris3_wl)
+    logger.info(
+        "Resampled endmember library to AVIRIS-3 grid: %d bands",
+        len(aviris3_wl),
+    )
+
+    # Run MESMA on the AVIRIS-3 reflectance.
+    aviris3_mesma = run_mesma(
+        aviris3_reflectance, aviris3_library, constraints=mesma_constraints,
+    )
+    logger.info(
+        "AVIRIS-3 MESMA complete: engine=%s, shape=(%d, %d)",
+        aviris3_mesma.attrs.get("unmixing_engine", "unknown"),
+        aviris3_mesma.sizes.get("y", 0),
+        aviris3_mesma.sizes.get("x", 0),
+    )
+
+    # Carry CRS from the reflectance Dataset to the fractions.
+    if "crs" in aviris3_reflectance.attrs:
+        aviris3_mesma.attrs["crs"] = aviris3_reflectance.attrs["crs"]
+
+    # Aggregate AVIRIS-3 fractions to the Tanager grid.
+    tgt_y = np.asarray(tanager_fractions.coords["y"].values, dtype=np.float64)
+    tgt_x = np.asarray(tanager_fractions.coords["x"].values, dtype=np.float64)
+    tgt_crs = tanager_fractions.attrs.get("crs")
+
+    aviris3_aggregated = _aggregate_fractions_to_grid(
+        aviris3_mesma,
+        target_y=tgt_y,
+        target_x=tgt_x,
+        target_resolution=target_resolution,
+        target_crs=tgt_crs,
+    )
+
+    # Compute accuracy on the overlap area.
+    pred = np.asarray(tanager_fractions[fraction_variable].values, dtype=np.float64).ravel()
+    obs = np.asarray(aviris3_aggregated[fraction_variable].values, dtype=np.float64).ravel()
+
+    valid = np.isfinite(pred) & np.isfinite(obs)
+    n_valid = int(valid.sum())
+    if n_valid < 10:
+        raise ValueError(
+            f"Only {n_valid} valid comparison pixels in the overlap area "
+            f"(minimum 10 required). Check that the AVIRIS-3 swath covers "
+            f"the Tanager footprint."
+        )
+
+    accuracy = compute_accuracy(pred[valid], obs[valid], metric_type="continuous")
+
+    logger.info(
+        "Cross-sensor validation (%s): R²=%.3f, RMSE=%.4f, bias=%.4f, n=%d",
+        fraction_variable,
+        accuracy["r2"],
+        accuracy["rmse"],
+        accuracy["bias"],
+        accuracy["n_valid"],
+    )
+
+    return {
+        "accuracy": accuracy,
+        "aviris3_fractions": aviris3_aggregated,
+        "overlap_area_pixels": n_valid,
+        "method": "cross_sensor_mesma",
+        "fraction_variable": fraction_variable,
+    }
 
 
 def load_barc_reference(

@@ -9,6 +9,10 @@ Synthetic GeoTIFFs and DataArrays exercise:
   format, improvement ratios, and pandas comparison table.
 * :func:`tanager.validation.load_aviris3_reference` — GeoTIFF schema mapping
   and 3-m → 30-m spatial aggregation.
+* :func:`tanager.validation.load_aviris3_reflectance` — AVIRIS-3 L2A
+  reflectance NetCDF (284-band cube) loading and schema conversion.
+* :func:`tanager.validation.cross_validate_aviris3` — cross-sensor MESMA
+  validation pipeline.
 * :func:`tanager.validation.load_barc_reference` — BARC code remapping,
   nodata handling, and target-grid alignment.
 """
@@ -517,3 +521,325 @@ class TestLoadBARCReference:
         da = validation.load_barc_reference(path, target_grid=target)
         assert da.shape == (5, 5)
         assert (da.values == 3).sum() > 0
+
+
+# ---------------------------------------------------------------------------
+# load_aviris3_reflectance
+# ---------------------------------------------------------------------------
+
+
+def _write_aviris3_netcdf(
+    path,
+    n_bands=20,
+    n_rows=60,
+    n_cols=80,
+    *,
+    wl_min=400.0,
+    wl_max=2500.0,
+    resolution_m=2.0,
+    crs="EPSG:32611",
+    rfl_var_name="Rfl",
+    wl_var_name="wavelength",
+):
+    """Write a synthetic AVIRIS-3 L2A reflectance NetCDF for testing."""
+    wavelengths = np.linspace(wl_min, wl_max, n_bands).astype(np.float32)
+    rng = np.random.default_rng(99)
+    rfl = rng.random((n_bands, n_rows, n_cols)).astype(np.float32) * 0.5
+
+    y_coords = 3780000.0 - np.arange(n_rows) * resolution_m
+    x_coords = 370000.0 + np.arange(n_cols) * resolution_m
+
+    ds = xr.Dataset(
+        {rfl_var_name: (("bands", "y", "x"), rfl)},
+        coords={
+            wl_var_name: ("bands", wavelengths),
+            "y": y_coords,
+            "x": x_coords,
+        },
+        attrs={"crs": crs},
+    )
+    ds.to_netcdf(path)
+    return wavelengths, rfl, y_coords, x_coords
+
+
+class TestLoadAviris3Reflectance:
+    def test_basic_load(self, tmp_path):
+        path = tmp_path / "aviris3_rfl.nc"
+        wl, rfl, y, x = _write_aviris3_netcdf(path, n_bands=20, n_rows=30, n_cols=40)
+
+        ds = validation.load_aviris3_reflectance(path)
+
+        assert "reflectance" in ds.data_vars
+        assert ds["reflectance"].dims == ("wavelength", "y", "x")
+        assert ds.sizes["wavelength"] == 20
+        assert ds.sizes["y"] == 30
+        assert ds.sizes["x"] == 40
+        assert ds.attrs["source"] == "aviris3_l2a"
+        assert ds.attrs["crs"] == "EPSG:32611"
+
+    def test_wavelength_range_subset(self, tmp_path):
+        path = tmp_path / "aviris3_rfl_subset.nc"
+        _write_aviris3_netcdf(path, n_bands=100, wl_min=400.0, wl_max=2500.0)
+
+        ds = validation.load_aviris3_reflectance(
+            path, wavelength_range=(800.0, 1200.0),
+        )
+        wl = ds.coords["wavelength"].values
+        assert wl.min() >= 800.0
+        assert wl.max() <= 1200.0
+        assert ds.sizes["wavelength"] < 100
+
+    def test_wavelength_range_empty_rejected(self, tmp_path):
+        path = tmp_path / "aviris3_rfl_empty.nc"
+        _write_aviris3_netcdf(path, n_bands=20, wl_min=400.0, wl_max=900.0)
+
+        with pytest.raises(ValueError, match="selects no bands"):
+            validation.load_aviris3_reflectance(
+                path, wavelength_range=(2000.0, 2500.0),
+            )
+
+    def test_missing_file_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError):
+            validation.load_aviris3_reflectance(tmp_path / "missing.nc")
+
+    def test_no_rfl_variable_raises(self, tmp_path):
+        path = tmp_path / "aviris3_no_rfl.nc"
+        ds = xr.Dataset({"temperature": (("z",), [1.0, 2.0])})
+        ds.to_netcdf(path)
+
+        with pytest.raises(ValueError, match="No reflectance variable"):
+            validation.load_aviris3_reflectance(path)
+
+    def test_fill_values_become_nan(self, tmp_path):
+        path = tmp_path / "aviris3_fill.nc"
+        n_bands, n_rows, n_cols = 10, 5, 5
+        wavelengths = np.linspace(400, 2500, n_bands).astype(np.float32)
+        rfl = np.full((n_bands, n_rows, n_cols), 0.3, dtype=np.float32)
+        rfl[0, 0, 0] = -9999.0
+
+        ds = xr.Dataset(
+            {"Rfl": (("bands", "y", "x"), rfl)},
+            coords={
+                "wavelength": ("bands", wavelengths),
+                "y": np.arange(n_rows, dtype=np.float64),
+                "x": np.arange(n_cols, dtype=np.float64),
+            },
+        )
+        ds.to_netcdf(path)
+
+        loaded = validation.load_aviris3_reflectance(path)
+        assert np.isnan(loaded["reflectance"].values[0, 0, 0])
+
+    def test_micrometre_wavelengths_autoconverted(self, tmp_path):
+        path = tmp_path / "aviris3_um.nc"
+        n_bands = 10
+        wl_um = np.linspace(0.4, 2.5, n_bands).astype(np.float32)
+        rfl = np.random.default_rng(1).random((n_bands, 5, 5)).astype(np.float32)
+
+        ds = xr.Dataset(
+            {"Rfl": (("bands", "y", "x"), rfl)},
+            coords={
+                "wavelength": ("bands", wl_um),
+                "y": np.arange(5, dtype=np.float64),
+                "x": np.arange(5, dtype=np.float64),
+            },
+        )
+        ds.to_netcdf(path)
+
+        loaded = validation.load_aviris3_reflectance(path)
+        wl_loaded = loaded.coords["wavelength"].values
+        assert wl_loaded.min() >= 300.0
+        assert wl_loaded.max() <= 3000.0
+
+    def test_alternative_var_name(self, tmp_path):
+        path = tmp_path / "aviris3_alt.nc"
+        _write_aviris3_netcdf(
+            path, n_bands=10, n_rows=5, n_cols=5,
+            rfl_var_name="reflectance",
+        )
+
+        ds = validation.load_aviris3_reflectance(path)
+        assert "reflectance" in ds.data_vars
+        assert ds.sizes["wavelength"] == 10
+
+    def test_public_api_export(self):
+        import tanager
+        assert callable(tanager.load_aviris3_reflectance)
+        assert tanager.load_aviris3_reflectance is validation.load_aviris3_reflectance
+
+    def test_cross_validate_export(self):
+        import tanager
+        assert callable(tanager.cross_validate_aviris3)
+        assert tanager.cross_validate_aviris3 is validation.cross_validate_aviris3
+
+
+# ---------------------------------------------------------------------------
+# _aggregate_fractions_to_grid
+# ---------------------------------------------------------------------------
+
+
+class TestAggregateFractionsToGrid:
+    def test_coarsen_preserves_mean(self):
+        n_fine = 60
+        n_coarse = 5
+        y_fine = np.arange(n_fine, dtype=np.float64) * 2.0
+        x_fine = np.arange(n_fine, dtype=np.float64) * 2.0
+        data = np.full((n_fine, n_fine), 0.4, dtype=np.float32)
+
+        fractions = xr.Dataset(
+            {"char": (("y", "x"), data)},
+            coords={"y": y_fine, "x": x_fine},
+        )
+
+        # Target coords within the coarsened grid range (after coarsen by
+        # factor 10, coords span roughly 0..118 at 20m steps → centres at
+        # 9..109). Place target points inside that range.
+        target_y = np.arange(n_coarse, dtype=np.float64) * 20.0 + 10.0
+        target_x = np.arange(n_coarse, dtype=np.float64) * 20.0 + 10.0
+
+        result = validation._aggregate_fractions_to_grid(
+            fractions,
+            target_y=target_y,
+            target_x=target_x,
+            target_resolution=20.0,
+        )
+
+        assert result.sizes["y"] == n_coarse
+        assert result.sizes["x"] == n_coarse
+        np.testing.assert_allclose(
+            result["char"].values,
+            0.4,
+            atol=1e-5,
+        )
+
+    def test_nan_pixels_excluded(self):
+        n = 20
+        y = np.arange(n, dtype=np.float64) * 2.0
+        x = np.arange(n, dtype=np.float64) * 2.0
+        data = np.full((n, n), 0.6, dtype=np.float32)
+        data[:5, :5] = np.nan
+
+        fractions = xr.Dataset(
+            {"char": (("y", "x"), data)},
+            coords={"y": y, "x": x},
+        )
+
+        target_y = np.array([5.0, 15.0, 25.0])
+        target_x = np.array([5.0, 15.0, 25.0])
+
+        result = validation._aggregate_fractions_to_grid(
+            fractions,
+            target_y=target_y,
+            target_x=target_x,
+            target_resolution=10.0,
+        )
+
+        # All cells should have valid data since coarsen with skipna=True
+        # handles partial NaN coverage.
+        assert result.sizes["y"] == 3
+        assert result.sizes["x"] == 3
+
+
+# ---------------------------------------------------------------------------
+# cross_validate_aviris3
+# ---------------------------------------------------------------------------
+
+
+class TestCrossValidateAviris3:
+    def test_perfect_agreement_yields_high_r2(self):
+        """Cross-validation with identical synthetic data should show R² ≈ 1."""
+        n_wl = 20
+        n_y = 10
+        n_x = 10
+        wavelengths = np.linspace(400, 2500, n_wl).astype(np.float32)
+
+        # Build a simple scene: char-like reflectance everywhere.
+        rfl = np.zeros((n_wl, n_y, n_x), dtype=np.float32)
+        for i, wl in enumerate(wavelengths):
+            rfl[i] = 0.02 + (wl - 400) / (2500 - 400) * 0.03
+
+        aviris3_scene = xr.Dataset(
+            {"reflectance": (("wavelength", "y", "x"), rfl)},
+            coords={
+                "wavelength": wavelengths,
+                "y": np.arange(n_y, dtype=np.float64),
+                "x": np.arange(n_x, dtype=np.float64),
+            },
+            attrs={"source": "aviris3_l2a"},
+        )
+
+        # Build a minimal endmember library with the same wavelength grid.
+        char_spec = np.zeros((1, n_wl), dtype=np.float32)
+        for i, wl in enumerate(wavelengths):
+            char_spec[0, i] = 0.02 + (wl - 400) / (2500 - 400) * 0.03
+        soil_spec = np.full((1, n_wl), 0.20, dtype=np.float32)
+        pv_spec = np.full((1, n_wl), 0.40, dtype=np.float32)
+        npv_spec = np.full((1, n_wl), 0.15, dtype=np.float32)
+
+        library = xr.DataArray(
+            np.vstack([char_spec, soil_spec, pv_spec, npv_spec]),
+            dims=("spectrum_id", "wavelength"),
+            coords={
+                "spectrum_id": ["char_0", "soil_0", "pv_0", "npv_0"],
+                "wavelength": wavelengths,
+                "category": (
+                    "spectrum_id",
+                    np.array(["char", "soil", "pv", "npv"], dtype=object),
+                ),
+                "name": (
+                    "spectrum_id",
+                    np.array(["char", "soil", "pv", "npv"], dtype=object),
+                ),
+                "source": (
+                    "spectrum_id",
+                    np.array(["synth", "synth", "synth", "synth"], dtype=object),
+                ),
+            },
+        )
+
+        # Run MESMA on the same scene to produce "Tanager" fractions.
+        from tanager.unmixing import run_mesma
+
+        tanager_fractions = run_mesma(aviris3_scene, library)
+
+        # Cross-validate: should produce near-perfect agreement since the
+        # same data and library go through the same MESMA implementation.
+        result = validation.cross_validate_aviris3(
+            aviris3_reflectance=aviris3_scene,
+            tanager_fractions=tanager_fractions,
+            library=library,
+            target_resolution=1.0,
+            fraction_variable="char",
+        )
+
+        assert result["method"] == "cross_sensor_mesma"
+        assert result["fraction_variable"] == "char"
+        assert result["overlap_area_pixels"] >= 10
+        assert result["accuracy"]["r2"] > 0.9
+
+    def test_missing_fraction_variable_rejected(self):
+        aviris3 = xr.Dataset(
+            {"reflectance": (("wavelength", "y", "x"), np.zeros((5, 3, 3)))},
+            coords={
+                "wavelength": np.linspace(400, 2500, 5).astype(np.float32),
+                "y": np.arange(3.0),
+                "x": np.arange(3.0),
+            },
+        )
+        tanager = xr.Dataset(
+            {"pv": (("y", "x"), np.ones((3, 3)))},
+            coords={"y": np.arange(3.0), "x": np.arange(3.0)},
+        )
+        library = xr.DataArray(
+            np.zeros((1, 5)),
+            dims=("spectrum_id", "wavelength"),
+            coords={
+                "spectrum_id": ["test"],
+                "wavelength": np.linspace(400, 2500, 5).astype(np.float32),
+                "category": ("spectrum_id", np.array(["char"], dtype=object)),
+            },
+        )
+        with pytest.raises(ValueError, match="missing.*char"):
+            validation.cross_validate_aviris3(
+                aviris3, tanager, library, fraction_variable="char",
+            )
