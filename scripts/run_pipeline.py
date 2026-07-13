@@ -740,8 +740,8 @@ def write_report(scene_reports: list[SceneReport], multi_stages: list[StageResul
     lines: list[str] = []
     lines.append("# Tanager FireSpec Pipeline — End-to-End Run")
     lines.append("")
-    lines.append(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S %Z')}")
-    lines.append(f"Repo: {REPO_ROOT}")
+    lines.append(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime())} UTC")
+    lines.append("Repo: .")
     lines.append(f"Tanager version: {tanager.__version__}")
     lines.append("")
     lines.append("## Summary")
@@ -756,7 +756,8 @@ def write_report(scene_reports: list[SceneReport], multi_stages: list[StageResul
     lines.append("## Per-scene results")
     for r in scene_reports:
         lines.append(f"\n### {r.scene_id}")
-        lines.append(f"- Source: `{r.filepath}`")
+        rel_fp = r.filepath.relative_to(REPO_ROOT) if str(r.filepath).startswith(str(REPO_ROOT)) else r.filepath
+        lines.append(f"- Source: `{rel_fp}`")
         if r.spatial:
             lines.append(f"- CRS: `{r.spatial.get('crs')}`")
             lines.append(f"- Shape: `{r.spatial.get('shape')}`")

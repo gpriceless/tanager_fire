@@ -1,7 +1,7 @@
 # Tanager FireSpec Pipeline — End-to-End Run
 
-Generated: 2026-04-28 12:45:16 PDT
-Repo: /home/gprice/projects/tanager
+Generated: 2026-04-28 19:45:16 UTC
+Repo: .
 Tanager version: 0.1.0
 
 ## Summary
@@ -12,7 +12,7 @@ Tanager version: 0.1.0
 ## Per-scene results
 
 ### 20241215
-- Source: `/home/gprice/projects/tanager/data/raw/fire/20241215_185916_33_4001_ortho_sr_hdf5.h5`
+- Source: `./data/raw/fire/20241215_185916_33_4001_ortho_sr_hdf5.h5`
 - CRS: `EPSG:32611`
 - Shape: `(713, 791)`
 - Bounds (xmin, ymin, xmax, ymax): `(329355.0, 3754425.0, 353055.0, 3775785.0)`
@@ -63,7 +63,7 @@ Tanager version: 0.1.0
       - `outputs/20241215_cbi.png`
 
 ### 20250123
-- Source: `/home/gprice/projects/tanager/data/raw/fire/20250123_185507_64_4001_ortho_sr_hdf5.h5`
+- Source: `./data/raw/fire/20250123_185507_64_4001_ortho_sr_hdf5.h5`
 - CRS: `EPSG:32611`
 - Shape: `(1047, 961)`
 - Bounds (xmin, ymin, xmax, ymax): `(345105.0, 3805935.0, 373905.0, 3837315.0)`
@@ -100,7 +100,7 @@ Tanager version: 0.1.0
       - `outputs/20250123_CR_depths_2100nm.tif`
 
 ### 20250407
-- Source: `/home/gprice/projects/tanager/data/raw/fire/20250407_192235_24_4001_ortho_sr_hdf5.h5`
+- Source: `./data/raw/fire/20250407_192235_24_4001_ortho_sr_hdf5.h5`
 - CRS: `EPSG:32611`
 - Shape: `(869, 1039)`
 - Bounds (xmin, ymin, xmax, ymax): `(324315.0, 3808635.0, 355455.0, 3834675.0)`
