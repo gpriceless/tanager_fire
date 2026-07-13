@@ -142,8 +142,11 @@ class TestProductStylesSpecValues:
     def test_severity_vmin_zero(self):
         assert PRODUCT_STYLES["severity"].vmin == 0
 
-    def test_severity_vmax_five(self):
-        assert PRODUCT_STYLES["severity"].vmax == 5
+    def test_severity_vmax_four(self):
+        assert PRODUCT_STYLES["severity"].vmax == 4
+
+    def test_severity_class_ticks_match_barc_classes(self):
+        assert PRODUCT_STYLES["severity"].class_ticks == [0, 1, 2, 3, 4]
 
 
 # ---------------------------------------------------------------------------

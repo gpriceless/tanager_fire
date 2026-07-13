@@ -134,9 +134,9 @@ PRODUCT_STYLES: Dict[str, ProductStyle] = {
     "severity": ProductStyle(
         cmap="tab10",
         vmin=0,
-        vmax=5,
+        vmax=4,
         label="Severity Class",
-        class_ticks=[0, 1, 2, 3, 4, 5],
+        class_ticks=[0, 1, 2, 3, 4],
     ),
     "char": ProductStyle(
         cmap="Reds",
