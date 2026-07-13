@@ -1,6 +1,5 @@
 # Endmember Library Research for FireSpec MESMA
 
-**Author:** Tobler (Research Lead)
 **Date:** 2026-04-27
 **Plane Issue:** TANAGER-4
 

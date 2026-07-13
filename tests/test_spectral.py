@@ -20,7 +20,6 @@ from tanager.spectral import (
     select_bands,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -193,7 +192,7 @@ class TestMaskBadBandsDefaults:
     def test_removes_water_vapour_band2(self, tanager_ds: xr.Dataset) -> None:
         result = mask_bad_bands(tanager_ds)
         wl = result.coords["wavelength"].values
-        # LGT-301: zone widened to 1780-1970 to align with sensor good_wavelengths
+        # Zone widened to 1780-1970 to align with sensor good_wavelengths
         # which flags ~1782.58-1967.21 nm.
         assert not np.any((wl >= 1780) & (wl <= 1970)), "Water vapour zone 1780-1970 not removed"
 
@@ -252,12 +251,12 @@ class TestMaskBadBandsCustomZones:
 
 
 # ---------------------------------------------------------------------------
-# LGT-301 — widened water-vapour zone and good_wavelengths integration
+# Widened water-vapour zone and good_wavelengths integration
 # ---------------------------------------------------------------------------
 
 
 class TestBadBandRangesAlignment:
-    """Verify BAD_BAND_RANGES covers the sensor-flagged ranges (LGT-301).
+    """Verify BAD_BAND_RANGES covers the sensor-flagged ranges.
 
     The sensor flags 58 bands as bad: 1342.41-1437.55 nm and 1782.58-1967.21 nm.
     BAD_BAND_RANGES is intentionally a small superset so wavelength-only
@@ -421,7 +420,7 @@ class TestMaskBadBandsHdf5Filepath:
 
 
 # ---------------------------------------------------------------------------
-# LGT-301 — Real-data integration: verify sensor alignment against HDF5 files
+# Real-data integration: verify sensor alignment against HDF5 files
 # ---------------------------------------------------------------------------
 
 
@@ -446,7 +445,7 @@ def _real_fire_scene_paths() -> list[str]:
     reason="Real ortho SR HDF5 scenes not present in data/raw/fire/",
 )
 class TestMaskBadBandsRealOrthoHDF5:
-    """LGT-301: mask_bad_bands aligns with sensor metadata on real scenes.
+    """mask_bad_bands aligns with sensor metadata on real scenes.
 
     Validates that the widened BAD_BAND_RANGES plus the good_wavelengths
     integration produces the same set of kept bands as the sensor's own
@@ -509,7 +508,7 @@ class TestMaskBadBandsRealOrthoHDF5:
             for w in sensor_bad_in_swir:
                 assert not np.any(np.isclose(kept, w)), (
                     f"{path}: SWIR band {w:.2f} nm survived BAD_BAND_RANGES masking "
-                    f"(LGT-301 regression — water-vapour zone too narrow)"
+                    f"(regression — water-vapour zone too narrow)"
                 )
 
     def test_real_scene_yields_expected_band_count(self) -> None:
@@ -528,7 +527,7 @@ class TestMaskBadBandsRealOrthoHDF5:
     def test_per_band_fwhm_varies(self) -> None:
         """Sanity check: per-band FWHM is non-constant across 5.20-6.81 nm.
 
-        The board directive notes FWHM varies per band rather than the
+        Real sensor metadata shows FWHM varies per band rather than the
         SENSOR.spectral_resolution_nm constant (5 nm). This test pins that
         observation so any future change to the loader/spec catches it.
         """
@@ -920,7 +919,7 @@ def test_task29_nbr_verification() -> None:
 
 
 # ---------------------------------------------------------------------------
-# clamp_reflectance + adversarial-input regression tests (LGT-311)
+# clamp_reflectance + adversarial-input regression tests
 # ---------------------------------------------------------------------------
 
 
@@ -1008,7 +1007,7 @@ class TestClampReflectance:
 
 
 class TestAdversarialReflectance:
-    """Regression tests for ISOFIT real-data reflectance pathologies (LGT-311).
+    """Regression tests for ISOFIT real-data reflectance pathologies.
 
     Real Tanager surface reflectance contains a substantial fraction of
     negative values and the occasional extreme outlier. Without the epsilon
@@ -1145,7 +1144,7 @@ class TestAdversarialReflectance:
 
 
 # ---------------------------------------------------------------------------
-# Real-data integration test (LGT-311 board directive)
+# Real-data integration test
 #
 # Skipped automatically when the post-fire ortho_sr HDF5 is not on disk so
 # CI without bulk-data access still passes.
@@ -1163,7 +1162,7 @@ _REAL_POST_FIRE_PATH = os.path.join(
 def test_real_scene_indices_are_in_physical_range() -> None:
     """Load a real Tanager ortho_sr scene and assert NBR/NDVI/NDWI ∈ [-1, 1].
 
-    This is the integration test the LGT-311 board directive requested.
+    This is the integration test the requirement called for.
     Real ISOFIT surface reflectance contains ~7% negative values and rare
     extreme outliers; the epsilon guard plus clamp ensures every finite
     output pixel is in the physical [-1, 1] range and no infinities are

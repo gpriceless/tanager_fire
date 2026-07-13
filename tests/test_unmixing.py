@@ -10,14 +10,12 @@ import xarray as xr
 
 from tanager import unmixing
 from tanager.unmixing import (
-    DEFAULT_CONSTRAINTS,
     normalize_fractions,
     plot_fraction_maps,
     plot_rgb_composite,
     run_mesma,
     select_bands_uszu,
 )
-
 
 # ---------------------------------------------------------------------------
 # Library + scene fixtures

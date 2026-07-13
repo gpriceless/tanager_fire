@@ -5,18 +5,17 @@ ax= parameter, publication mode, basemap stub, no-coords fallback, and
 unknown product_name warning.
 """
 
+# Use a non-interactive backend before any matplotlib import.
+import matplotlib
 import numpy as np
 import pytest
 import xarray as xr
 
-# Use a non-interactive backend before any matplotlib import.
-import matplotlib
 matplotlib.use("Agg")
 
 from matplotlib.figure import Figure  # noqa: E402
 
 from tanager.visualization import PRODUCT_STYLES, plot_map  # noqa: E402
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -179,6 +178,7 @@ class TestPlotMapProductNameLookup:
 
     def test_unknown_product_name_logs_warning_and_returns_figure(self, utm_da, caplog):
         import logging
+
         import matplotlib.pyplot as plt
         with caplog.at_level(logging.WARNING, logger="tanager.visualization"):
             fig = plot_map(utm_da, product_name="bogus_product_xyz")
@@ -235,8 +235,9 @@ class TestPlotMapPublicationMode:
 
 class TestPlotMapBasemap:
     def test_basemap_true_does_not_raise(self, utm_da):
-        import matplotlib.pyplot as plt
         from unittest.mock import patch
+
+        import matplotlib.pyplot as plt
         # Mock contextily to avoid network calls; add_basemap is now real.
         with patch("contextily.add_basemap"):
             fig = plot_map(utm_da, basemap=True)

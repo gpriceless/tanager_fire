@@ -1,9 +1,7 @@
 # Phase 1 Research Summary: FireSpec Literature Review & Tool Evaluation
 
 **Date:** 2026-04-27
-**Author:** Tobler (Research Lead)
 **Status:** Complete
-**Handoff to:** Product Queen (for OpenSpec change proposal)
 
 ---
 

@@ -17,13 +17,13 @@
 - **Convention**: True = valid/land, False = masked/water/cloud/nodata
 - **Exemplar**: src/tanager/masks.py — `nodata_mask()` (first mask function)
 
-### Endmember Library (Phase 3)
+### Endmember Library
 - **Shape**: xarray.DataArray with dims (spectrum_id, wavelength)
 - **Convention**: spectrum_id is string coordinate, wavelength in nm, attrs: name, category, source
 - **Category values**: char, ash, pv, npv, soil, shade
 - **Exemplar**: src/tanager/endmembers.py — `load_usgs_library()` output
 
-### Fraction Map (Phase 3)
+### Fraction Map
 - **Shape**: xarray.Dataset with dims (y, x), variables per endmember class
 - **Convention**: fractions sum to 1.0 (tolerance 0.01), NaN for failed pixels, metadata: unmixing_engine
 - **Exemplar**: src/tanager/unmixing.py — `run_mesma()` output
@@ -46,10 +46,9 @@
 - **Logging**: use Python `logging` module for informational messages (band counts, etc.)
 - **Heavy deps**: import at function level (matplotlib, sklearn), not module level
 
-### Validation Module (validation.py — Phase 3)
+### Validation Module (validation.py)
 - **Shape**: accuracy metrics + reference data loaders
 - **Convention**: top of dependency tree — may import from any tanager module, nothing imports from it
-- **Exemplar**: (new in Phase 3)
 
 ## Test Patterns
 
@@ -62,9 +61,9 @@
 - **Convention**: mock pystac.Catalog.from_file(), hypercoast.read_tanager(), SPy EcostressDatabase — no live network calls in unit tests
 - **Exemplar**: tests/test_catalog.py for mock patterns
 
-### ML Model Tests (Phase 3)
+### ML Model Tests
 - **Convention**: generate synthetic X, y with known relationship; verify model R² > 0 and output shapes
-- **Exemplar**: tests/test_severity.py, tests/test_lfmc.py (new)
+- **Exemplar**: tests/test_severity.py, tests/test_lfmc.py
 
 ## Dependency Direction (ENFORCED)
 

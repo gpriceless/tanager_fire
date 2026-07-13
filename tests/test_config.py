@@ -1,5 +1,5 @@
 """Tests for tanager.config — sensor constants, bad-band integrity, and the
-``parallel_jobs()`` joblib worker cap (LGT-1012 / TD-13).
+``parallel_jobs()`` joblib worker cap.
 
 ``parallel_jobs()`` is safety-critical: it bounds joblib worker counts so that
 concurrent notebook/pipeline runs cannot OOM the machine. These tests pin its

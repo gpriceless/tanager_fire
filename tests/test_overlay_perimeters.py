@@ -17,16 +17,15 @@ Covers:
 from __future__ import annotations
 
 import matplotlib
+
 matplotlib.use("Agg")  # non-interactive backend; must be set before pyplot import
 
+import geopandas as gpd
 import matplotlib.pyplot as plt
 import pytest
-
-import geopandas as gpd
 from shapely.geometry import Polygon
 
 from tanager.visualization import overlay_perimeters
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures

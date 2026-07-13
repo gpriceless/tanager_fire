@@ -233,7 +233,7 @@ class TestComputeLFMCIndices:
             assert finite.max() <= 1.0 + 1e-6
 
     def test_succeeds_with_per_band_fwhm_and_good_wavelengths_coords(self):
-        # Regression for LGT-333: real Tanager DataArrays carry per-band
+        # Regression: real Tanager DataArrays carry per-band
         # `fwhm` and `good_wavelengths` aux coords along the wavelength dim;
         # CR_depths construction used to raise MergeError because each
         # `sel(method="nearest")` slice carried a different aux value.
@@ -254,7 +254,7 @@ class TestComputeLFMCIndices:
         assert "good_wavelengths" not in indices["CR_depths"].coords
 
     def test_accepts_surface_reflectance_variable_name(self):
-        # Regression for LGT-332: load_ortho_scene names the cube
+        # Regression: load_ortho_scene names the cube
         # `surface_reflectance`. compute_lfmc_indices must resolve it via
         # the shared scene_reflectance helper instead of demanding the
         # synthetic `reflectance` name.
@@ -447,7 +447,7 @@ class TestLoadGlobeLFMC:
         pytest.importorskip("geopandas")
         path = self._write_csv(tmp_path)
         # A generator is single-use; the loader must materialize it once so the
-        # colocation flag is still computed (regression for LGT-1017).
+        # colocation flag is still computed (regression test).
         gdf = lfmc.load_globe_lfmc(
             path,
             tanager_scene_dates=(d for d in ["2025-01-23"]),

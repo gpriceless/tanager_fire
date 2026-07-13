@@ -1,9 +1,9 @@
-# Research Memory: Tanager Competition
+# Research Notes: Tanager Competition
 
-> Long-term memory for research agents. Tracks literature, experiments, data sources, and scientific findings.
+Tracks literature, experiments, data sources, and scientific findings for the
+FireSpec burn severity and live fuel moisture project.
 
 **Location:** `/docs/research-memory.md`
-**Owner:** Tobler (Research Lead)
 **Updated:** 2026-05-04
 **Version:** 2.3 (Sensor comparison data availability verified)
 
@@ -11,7 +11,7 @@
 
 ## Purpose
 
-This is the third tier of the memory system, specific to research-heavy projects. It tracks:
+This document tracks:
 1. **Literature** — Key papers, their findings, and relevance
 2. **Data sources** — Datasets, spectral libraries, reference data
 3. **Experiments** — What was tried, what worked, what didn't
@@ -304,10 +304,10 @@ HyperCoast (HDF5 -> xarray) -> numpy bridge -> SPy / MESMA / spyndex
 | B4 | SPy does not read HDF5 or xarray natively | Low | Extract .values from xarray to numpy | Working |
 | B5 | GEE has only basic radiance (no L2) | Low | Direct HDF5 download is primary workflow | N/A |
 | B6 | ~~USGS Spectral Library v7 no Python-native loader~~ | ~~Low~~ | ~~splib07-loader or numpy ASCII parsing~~ | **RESOLVED (2026-04-28) — splib07-loader incompatible (numpy<2); use custom ASCII parser on ASCIIdata_splib07a.zip (20.8 MB from ScienceBase DOI:10.5066/F7RR1WDJ). s07ASD prefix = ASD spectrometer, 2151 channels, 350-2500nm.** |
-| B7 | **HyperCoast read_tanager() fails on ortho products** | **Critical** | Direct h5py loader needed (prototype validated) | **NEW — LGT-296** |
-| B8 | **cloud_mask() wrong HDF5 paths for ortho** | **High** | Add GRIDS paths to candidate list | **NEW — LGT-297** |
-| B9 | **Spectral indices produce impossible values** | **High** | Clamp reflectance + epsilon guard | **NEW — LGT-298** |
-| B10 | **No spatial co-registration for multi-temporal** | **High** | rasterio reproject to common grid | **NEW — LGT-299** |
+| B7 | **HyperCoast read_tanager() fails on ortho products** | **Critical** | Direct h5py loader needed (prototype validated) | **NEW** |
+| B8 | **cloud_mask() wrong HDF5 paths for ortho** | **High** | Add GRIDS paths to candidate list | **NEW** |
+| B9 | **Spectral indices produce impossible values** | **High** | Clamp reflectance + epsilon guard | **NEW** |
+| B10 | **No spatial co-registration for multi-temporal** | **High** | rasterio reproject to common grid | **NEW** |
 
 ---
 

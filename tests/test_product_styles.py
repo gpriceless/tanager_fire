@@ -4,10 +4,10 @@ Verifies all 11 product type entries have correct colormap presets per spec.
 """
 
 import dataclasses
+
 import pytest
 
 from tanager.visualization import PRODUCT_STYLES, ProductStyle
-
 
 # ---------------------------------------------------------------------------
 # ProductStyle dataclass

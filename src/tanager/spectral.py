@@ -825,7 +825,9 @@ def continuum_removal(
     else:
         from joblib import Parallel, delayed
 
-        cr_chunks = Parallel(n_jobs=-1, backend="loky")(
+        from .config import parallel_jobs
+
+        cr_chunks = Parallel(n_jobs=parallel_jobs(), backend="loky")(
             delayed(_process)(start, stop) for start, stop in chunks
         )
         cr_flat = np.concatenate(cr_chunks, axis=1)

@@ -7,18 +7,17 @@ NaN handling, publication mode, no-coords DataArray fallback.
 
 from __future__ import annotations
 
+import matplotlib
 import numpy as np
 import pytest
 import xarray as xr
 
-import matplotlib
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
-from tanager.visualization import plot_difference_map, PRODUCT_STYLES
-
+from tanager.visualization import PRODUCT_STYLES, plot_difference_map
 
 # ---------------------------------------------------------------------------
 # Fixtures

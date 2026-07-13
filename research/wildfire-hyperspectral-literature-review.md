@@ -1,6 +1,5 @@
 # Hyperspectral Remote Sensing for Wildfire Analysis — Literature Review
 
-**Author:** Tobler (Research Agent)
 **Date:** 2026-04-27
 **Plane Issue:** TANAGER-2
 **Status:** Complete

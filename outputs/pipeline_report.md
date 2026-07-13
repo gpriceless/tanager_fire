@@ -145,7 +145,7 @@ Tanager version: 0.1.0
 
 ## Known gaps observed during this run
 
-- **No external endmember libraries installed.** ECOSTRESS SQLite is not present on this machine and the USGS loader is not yet implemented (LGT-330). MESMA was therefore exercised with image-derived endmembers extracted via NBR/NDVI heuristics — useful for plumbing validation but not for publishable severity products.
+- **No external endmember libraries installed.** ECOSTRESS SQLite is not present on this machine and the USGS loader is not yet implemented. MESMA was therefore exercised with image-derived endmembers extracted via NBR/NDVI heuristics — useful for plumbing validation but not for publishable severity products.
 - **No CBI ground truth.** The burn-severity model was trained on a synthetic CBI proxy (`3 * char`) so the train/predict path is exercised end-to-end. Real CBI plots will replace this once available.
 - **LFMC predict_lfmc not exercised.** A trained PLSR model artifact is required and none is checked in. Only `compute_lfmc_indices` was run; once a model is trained the predict_lfmc stage can be slotted in.
 - **`compute_lfmc_indices` is per-pixel-Python slow.** The continuum-removal pass uses `xr.apply_ufunc(vectorize=True)`, which iterates over every pixel in Python. The full-scene run was killed after >4 minutes; this stage was exercised on a 256x256 center crop to keep the heartbeat bounded. A vectorized hull or chunked dask path is needed before full-scene LFMC products are practical.

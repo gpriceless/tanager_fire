@@ -23,7 +23,6 @@ pytest.importorskip("sklearn")
 
 from tanager import validation
 
-
 # ---------------------------------------------------------------------------
 # compute_accuracy — continuous
 # ---------------------------------------------------------------------------

@@ -1,9 +1,7 @@
 # Sensor Comparison Research: Tanager vs EMIT/PRISMA/Sentinel-2
 
-**Author:** Tobler (Geospatial Data Scientist)
 **Date:** 2026-05-04
 **Competition tie-breaker:** +5 points for quantitative Tanager vs EMIT/PRISMA comparison
-**Paperclip issue:** LGT-398
 
 ---
 
@@ -308,7 +306,7 @@ def load_sentinel2_dnbr(
 
 ### R1: Implement spectral degradation as Phase 4 work
 
-The simulation approach requires no external data and uses existing infrastructure (SPy BandResampler). This should be part of the Phase 4 OpenSpec (which PQ is expected to spec).
+The simulation approach requires no external data and uses existing infrastructure (SPy BandResampler). This should be part of the Phase 4 plan (which PQ is expected to spec).
 
 ### R2: Download Sentinel-2 pre/post-fire scenes now
 

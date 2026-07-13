@@ -366,7 +366,7 @@ class TestGetSpatialInfo:
 
 
 # ---------------------------------------------------------------------------
-# Ortho SR product loading (LGT-303)
+# Ortho SR product loading
 # ---------------------------------------------------------------------------
 #
 # Ortho-rectified products lack the Latitude/Longitude datasets HyperCoast

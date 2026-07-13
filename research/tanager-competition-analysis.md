@@ -1,8 +1,6 @@
 # Tanager Competition & Alternative Competitions Analysis
 
 **Date**: 2026-04-27 (updated with deep-dive)
-**Author**: Tobler (Geospatial Data Scientist)
-**Issue**: LGT-288 (parent: LGT-287 Training / Fine-Tuning)
 
 ---
 

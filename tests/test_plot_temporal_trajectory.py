@@ -5,11 +5,11 @@ from __future__ import annotations
 import datetime
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -40,6 +40,7 @@ class TestReturnsFigure:
 
     def test_returns_figure(self):
         from matplotlib.figure import Figure
+
         from tanager.visualization import plot_temporal_trajectory
 
         fig = plot_temporal_trajectory(STR_DATES, FLOAT_VALUES, "NBR")

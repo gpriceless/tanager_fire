@@ -35,13 +35,13 @@ SRC_PATH = REPO_ROOT / "src"
 if str(SRC_PATH) not in sys.path:
     sys.path.insert(0, str(SRC_PATH))
 
-import tanager
-from tanager.io import load_ortho_scene, get_spatial_info, reproject_to_common_grid
-from tanager.spectral import nbr, ndvi, ndwi, dnbr, clamp_reflectance
-from tanager.masks import nodata_mask, cloud_mask, water_mask, apply_masks
-from tanager.lfmc import compute_lfmc_indices
-from tanager.config import EMIT_SENSOR, PRISMA_SENSOR, SENTINEL2_BANDS
-from tanager.validation import simulate_sensor, compare_sensors
+import tanager  # noqa: E402
+from tanager.config import EMIT_SENSOR, PRISMA_SENSOR, SENTINEL2_BANDS  # noqa: E402
+from tanager.io import get_spatial_info, load_ortho_scene  # noqa: E402
+from tanager.lfmc import compute_lfmc_indices  # noqa: E402
+from tanager.masks import apply_masks, cloud_mask, nodata_mask, water_mask  # noqa: E402
+from tanager.spectral import clamp_reflectance, dnbr, nbr, ndvi, ndwi  # noqa: E402
+from tanager.validation import compare_sensors, simulate_sensor  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -335,8 +335,7 @@ def stage_mesma_image(scene: xr.Dataset, scene_id: str, out_dir: Path) -> tuple[
     average each region's spectrum to seed a small endmember library. This is
     a coarse stand-in — the result is documented in the report as such.
     """
-    from tanager.endmembers import extract_image_endmembers, resample_library
-    from tanager.unmixing import run_mesma, normalize_fractions
+    from tanager.unmixing import normalize_fractions, run_mesma
 
     # Derive coarse class regions from spectral indices.
     nbr_da = nbr(scene)
@@ -448,7 +447,7 @@ def stage_severity(fractions: xr.Dataset, scene_id: str, out_dir: Path) -> tuple
     train/predict path end-to-end. This is documented as synthetic in the
     report.
     """
-    from tanager.severity import train_severity_model, predict_severity
+    from tanager.severity import predict_severity, train_severity_model
 
     char = np.asarray(fractions["char"].values, dtype=np.float32).ravel()
     synthetic_cbi = np.clip(3.0 * char, 0.0, 3.0)
@@ -790,8 +789,8 @@ def write_report(scene_reports: list[SceneReport], multi_stages: list[StageResul
     lines.append("")
     lines.append(
         "- **No external endmember libraries installed.** ECOSTRESS SQLite is "
-        "not present on this machine and the USGS loader is not yet implemented "
-        "(LGT-330). MESMA was therefore exercised with image-derived endmembers "
+        "not present on this machine and the USGS loader is not yet implemented. "
+        "MESMA was therefore exercised with image-derived endmembers "
         "extracted via NBR/NDVI heuristics — useful for plumbing validation but "
         "not for publishable severity products."
     )

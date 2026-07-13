@@ -4,7 +4,7 @@ These tests run each of the five deliverable notebooks
 (``01-data-discovery`` … ``05-sensor-comparison``) through
 ``jupyter nbconvert --execute`` and assert a clean exit. They exist because
 the notebooks had *no* automated coverage: a stress test found that
-``04-temporal-recovery`` OOM-killed the machine twice (LGT-1012), and a
+``04-temporal-recovery`` OOM-killed the machine twice, and a
 notebook-execution test is the only thing that would have caught that
 regression before it reached a human.
 
@@ -19,7 +19,7 @@ scenes under :data:`tanager.config.DATA_DIR`, so every test here is:
 
 Each notebook runs with ``TANAGER_MAX_JOBS=2`` so the joblib worker cap keeps
 memory bounded (see :func:`tanager.config.parallel_jobs`); an unbounded run is
-what caused the LGT-1012 OOMs.
+what caused the OOMs described above.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def test_notebook_executes_cleanly(notebook_name: str, tmp_path: Path) -> None:
     output_path = tmp_path / notebook_name
 
     env = dict(os.environ)
-    # Bound joblib workers so parallel stages stay memory-safe (LGT-1012).
+    # Bound joblib workers so parallel stages stay memory-safe.
     env["TANAGER_MAX_JOBS"] = "2"
     # Keep matplotlib headless inside the kernel subprocess.
     env.setdefault("MPLBACKEND", "Agg")

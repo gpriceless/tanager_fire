@@ -338,9 +338,9 @@ def compute_lfmc_indices(scene: Any) -> xr.Dataset:
       wavelength so callers can ``isel(cr_target=...)`` or
       ``sel(cr_target=970.0)``.
 
-    Reflectance is clamped to ``[0, 1]`` before any index math (see Phase 2
-    finding LGT-311: real Tanager ISOFIT surface reflectance has ~13%
-    negative values that would corrupt SAI continua and ratio-based indices).
+    Reflectance is clamped to ``[0, 1]`` before any index math (real Tanager
+    ISOFIT surface reflectance has ~13% negative values that would corrupt
+    SAI continua and ratio-based indices).
 
     Args:
         scene: xr.Dataset with a ``reflectance`` variable shaped
@@ -365,8 +365,8 @@ def compute_lfmc_indices(scene: Any) -> xr.Dataset:
     # Real Tanager DataArrays carry per-band aux coords (`fwhm`,
     # `good_wavelengths`) along the wavelength dim. Each `sel(method="nearest")`
     # below grabs the nearest band's aux value — and those differ per pick, so
-    # the resulting variables conflict on `xr.Dataset(...)` construction
-    # (LGT-333). Strip them once up front; they're not meaningful on per-band
+    # the resulting variables conflict on `xr.Dataset(...)` construction.
+    # Strip them once up front; they're not meaningful on per-band
     # selections or on derived index outputs.
     refl = refl.drop_vars(("fwhm", "good_wavelengths"), errors="ignore")
 

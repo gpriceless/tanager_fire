@@ -22,12 +22,10 @@ matplotlib.use("Agg")  # non-interactive backend; must be set before pyplot impo
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+import rioxarray  # noqa: F401 — registers the .rio accessor on xr.DataArray
 import xarray as xr
 
-import rioxarray  # noqa: F401 — registers the .rio accessor on xr.DataArray
-
 from tanager.visualization import PRODUCT_STYLES, ProductStyle, plot_map, save_figure
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -326,6 +324,7 @@ class TestAddBasemapWithMockedContextily:
     def test_mock_is_called(self, georef_da):
         """Verify contextily.add_basemap is invoked when add_basemap is called."""
         from unittest.mock import patch
+
         from tanager.visualization import add_basemap
 
         fig, ax = plt.subplots()
@@ -333,7 +332,7 @@ class TestAddBasemapWithMockedContextily:
         ax.set_ylim(3_780_000, 3_790_000)
         try:
             with patch("contextily.add_basemap") as mock_ctx:
-                result = add_basemap(ax)
+                add_basemap(ax)
             assert mock_ctx.called
         finally:
             plt.close(fig)
@@ -341,6 +340,7 @@ class TestAddBasemapWithMockedContextily:
     def test_ax_returned_unchanged(self, georef_da):
         """add_basemap must return the exact same Axes object."""
         from unittest.mock import patch
+
         from tanager.visualization import add_basemap
 
         fig, ax = plt.subplots()
@@ -356,6 +356,7 @@ class TestAddBasemapWithMockedContextily:
     def test_xlim_ylim_preserved_after_call(self, georef_da):
         """Axes limits must not be altered by add_basemap."""
         from unittest.mock import patch
+
         from tanager.visualization import add_basemap
 
         fig, ax = plt.subplots()
@@ -378,6 +379,7 @@ class TestAddBasemapOfflineGracefulDegradation:
     def test_oserror_does_not_propagate(self):
         """OSError from contextily is swallowed; no exception escapes."""
         from unittest.mock import patch
+
         from tanager.visualization import add_basemap
 
         fig, ax = plt.subplots()
@@ -393,6 +395,7 @@ class TestAddBasemapOfflineGracefulDegradation:
     def test_ax_returned_after_network_failure(self):
         """ax is returned even when the tile fetch raises."""
         from unittest.mock import patch
+
         from tanager.visualization import add_basemap
 
         fig, ax = plt.subplots()
@@ -413,7 +416,9 @@ class TestLoadFirePerimetersWithSyntheticGeoJSON:
     def test_returns_geodataframe_with_geometry(self):
         """A minimal GeoJSON file produces a GeoDataFrame with a geometry column."""
         import json
+
         import geopandas as gpd
+
         from tanager.visualization import load_fire_perimeters
 
         feature = {
@@ -451,6 +456,7 @@ class TestLoadFirePerimetersWithSyntheticGeoJSON:
     def test_feature_property_accessible(self):
         """Properties from the GeoJSON are available as GeoDataFrame columns."""
         import json
+
         from tanager.visualization import load_fire_perimeters
 
         feature = {
@@ -605,11 +611,12 @@ class TestEndToEndPlotMapBasemapPerimetersScalebar:
 
     def test_all_elements_present_on_figure(self, georef_da):
         """After running the full pipeline the figure must have all expected elements."""
-        import json
+        from unittest.mock import patch
+
         import geopandas as gpd
         from shapely.geometry import Polygon
-        from unittest.mock import patch
-        from tanager.visualization import plot_map, overlay_perimeters, add_scalebar
+
+        from tanager.visualization import add_scalebar, overlay_perimeters, plot_map
 
         # Step 1: render the base map with a mocked basemap tile call.
         with patch("contextily.add_basemap"):
@@ -651,11 +658,13 @@ class TestEndToEndPlotMapBasemapPerimetersScalebar:
 
     def test_network_failure_does_not_abort_pipeline(self, georef_da):
         """Even when the basemap tile fetch fails, the rest of the pipeline works."""
-        import geopandas as gpd
-        from shapely.geometry import Polygon
         from unittest.mock import patch
-        from tanager.visualization import plot_map, overlay_perimeters, add_scalebar
+
+        import geopandas as gpd
         from matplotlib.figure import Figure
+        from shapely.geometry import Polygon
+
+        from tanager.visualization import add_scalebar, overlay_perimeters, plot_map
 
         with patch("contextily.add_basemap", side_effect=OSError("no network")):
             fig = plot_map(georef_da, basemap=True)
@@ -702,6 +711,7 @@ class TestPlotBeforeAfterReturnsFigure:
 
     def test_returns_figure(self):
         from matplotlib.figure import Figure
+
         from tanager.visualization import plot_before_after
 
         pre, post = _make_pre_da(), _make_post_da()
@@ -810,6 +820,7 @@ class TestPlotBeforeAfterNaNHandling:
 
     def test_pre_with_nan_renders(self):
         from matplotlib.figure import Figure
+
         from tanager.visualization import plot_before_after
 
         pre = _make_pre_da()
@@ -826,6 +837,7 @@ class TestPlotBeforeAfterNaNHandling:
 
     def test_post_all_nan_renders(self):
         from matplotlib.figure import Figure
+
         from tanager.visualization import plot_before_after
 
         pre = _make_pre_da()
@@ -908,6 +920,7 @@ class TestPlotBeforeAfterBasemap:
 
     def test_basemap_called_on_both_panels(self):
         from unittest.mock import patch
+
         from tanager.visualization import plot_before_after
 
         pre, post = _make_pre_da(), _make_post_da()
@@ -968,6 +981,7 @@ class TestPlotSeveritySummaryReturnsFigure:
 
     def test_returns_figure(self):
         from matplotlib.figure import Figure
+
         from tanager.visualization import plot_severity_summary
 
         fractions = _make_fractions_ds()
@@ -1065,6 +1079,7 @@ class TestPlotSeveritySummaryNaNHandling:
     def test_nan_in_char_renders(self):
         """A fractions dataset with NaN in char must produce a valid figure."""
         from matplotlib.figure import Figure
+
         from tanager.visualization import plot_severity_summary
 
         fractions = _make_fractions_ds()
@@ -1083,6 +1098,7 @@ class TestPlotSeveritySummaryNaNHandling:
     def test_all_nan_cbi_renders(self):
         """All-NaN CBI must produce a valid figure (masked, no crash)."""
         from matplotlib.figure import Figure
+
         from tanager.visualization import plot_severity_summary
 
         fractions = _make_fractions_ds()
@@ -1383,6 +1399,7 @@ class TestComparisonFunctionsEndToEnd:
     def test_all_three_functions_return_figures(self):
         """plot_before_after, plot_difference_map, and plot_severity_summary all return Figures."""
         from matplotlib.figure import Figure
+
         from tanager.visualization import (
             plot_before_after,
             plot_difference_map,
@@ -1634,6 +1651,7 @@ class TestTemporalTrajectoryIntegration:
         datetime objects instead of strings.
         """
         import datetime
+
         from tanager.visualization import plot_temporal_trajectory
 
         dt_dates = [
@@ -1715,6 +1733,7 @@ class TestInteractiveMapIntegration:
     def test_interactive_map_creates_map_object(self):
         """interactive_map must return the Map object produced by leafmap.Map."""
         from unittest.mock import MagicMock, patch
+
         from tanager.visualization import interactive_map
 
         mock_leafmap = MagicMock()
@@ -1733,6 +1752,7 @@ class TestInteractiveMapIntegration:
         """When leafmap is unavailable, interactive_map must fall back to folium."""
         import sys
         from unittest.mock import MagicMock, patch
+
         from tanager.visualization import interactive_map
 
         mock_folium = MagicMock()
@@ -1760,9 +1780,11 @@ class TestInteractiveMapIntegration:
 
     def test_interactive_map_with_perimeter_geodataframe(self):
         """Passing a GeoDataFrame as perimeters must call add_geojson on the map."""
+        from unittest.mock import MagicMock, patch
+
         import geopandas as gpd
         from shapely.geometry import Polygon
-        from unittest.mock import MagicMock, patch
+
         from tanager.visualization import interactive_map
 
         mock_leafmap = MagicMock()
@@ -1793,8 +1815,10 @@ class TestShowProductIntegration:
 
     def test_show_product_static_returns_figure(self):
         """show_product(interactive=False) must return a matplotlib Figure."""
-        from matplotlib.figure import Figure
         from unittest.mock import patch
+
+        from matplotlib.figure import Figure
+
         from tanager.visualization import show_product
 
         da = _make_integration_georef_da(seed=10)
@@ -1810,6 +1834,7 @@ class TestShowProductIntegration:
     def test_show_product_interactive_returns_map(self):
         """show_product(interactive=True) must return the Map from interactive_map."""
         from unittest.mock import MagicMock, patch
+
         from tanager.visualization import show_product
 
         da = _make_integration_georef_da(seed=11)
@@ -1824,6 +1849,7 @@ class TestShowProductIntegration:
     def test_show_product_auto_detects_name(self):
         """When product_name is omitted, show_product uses da.name for the title."""
         from unittest.mock import patch
+
         from tanager.visualization import show_product
 
         da = _make_integration_georef_da(seed=12)
@@ -1843,6 +1869,7 @@ class TestShowProductIntegration:
     def test_show_product_title_includes_date(self):
         """Title must contain the scene_date string when one is provided."""
         from unittest.mock import patch
+
         from tanager.visualization import show_product
 
         da = _make_integration_georef_da(seed=13)
@@ -1969,6 +1996,7 @@ class TestPublicationIntegration:
     def test_plot_before_after_returns_figure_with_two_axes(self):
         """plot_before_after must return a Figure containing at least 2 map axes."""
         from matplotlib.figure import Figure
+
         from tanager.visualization import plot_before_after
 
         pre = self._make_synthetic_da(seed=1, vmin=0.3, vmax=0.8)
@@ -1997,6 +2025,7 @@ class TestPublicationIntegration:
     def test_plot_temporal_trajectory_returns_figure_with_line(self):
         """plot_temporal_trajectory must return a Figure whose axes contain line data."""
         from matplotlib.figure import Figure
+
         from tanager.visualization import plot_temporal_trajectory
 
         dates = [
@@ -2131,8 +2160,9 @@ class TestSmoke:
         - plot_map returns a matplotlib Figure with at least one axis.
         - Passing ``product_name='nbr'`` and a title does not raise.
         """
-        import tanager
         from matplotlib.figure import Figure
+
+        import tanager
 
         da = self._make_nbr_da()
         fig = tanager.plot_map(da, product_name="nbr", title="Smoke Test")
@@ -2157,8 +2187,8 @@ class TestSmoke:
         - The returned list contains a path that exists on disk.
         - The file is non-empty (has bytes written).
         """
+
         import tanager
-        from matplotlib.figure import Figure
 
         da = self._make_nbr_da(seed=1)
         fig = tanager.plot_map(da, product_name="nbr", title="Save Smoke Test")
@@ -2186,8 +2216,8 @@ class TestSmoke:
         - The function returns a non-None object (the Map).
         - leafmap.Map is called (i.e. the layer wiring path is exercised).
         """
-        import sys
         from unittest.mock import MagicMock, patch
+
         import tanager
 
         da = self._make_nbr_da(seed=2)
@@ -2221,10 +2251,11 @@ class TestSmoke:
         All three calls must succeed without raising, and each produces a
         verifiable artefact (Figure type, existing file, non-None Map).
         """
-        import sys
         from unittest.mock import MagicMock, patch
-        import tanager
+
         from matplotlib.figure import Figure
+
+        import tanager
 
         da = self._make_nbr_da(seed=3)
 

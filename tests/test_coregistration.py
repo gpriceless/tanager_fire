@@ -1,4 +1,4 @@
-"""Tests for spatial co-registration (LGT-313 / LGT-299).
+"""Tests for spatial co-registration.
 
 Covers:
     * ``tanager.io.reproject_to_common_grid`` — alignment of multi-temporal
@@ -406,7 +406,7 @@ class TestDnbrAutoAlign:
 
 
 # ---------------------------------------------------------------------------
-# Real-data integration (LGT-313 board directive)
+# Real-data integration
 #
 # Skipped automatically when the bulk fire HDF5s are not on disk so CI without
 # bulk-data access still passes.
@@ -468,7 +468,7 @@ def test_real_post_fire_and_recovery_align_and_dnbr_in_range():
 def test_real_pre_and_post_fire_have_minimal_or_no_overlap():
     """Pre-fire (Dec 15) covers Malibu coast; post-fire (Jan 23) covers Eaton.
 
-    Per the LGT-299 issue these scenes are geographically distant — the Y
+    These scenes are geographically distant — the Y
     ranges are disjoint (~3.75M m vs ~3.81M m UTM north). The function
     should refuse to align them rather than silently produce a near-empty
     common grid.

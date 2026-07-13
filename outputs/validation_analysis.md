@@ -1,6 +1,5 @@
 # FireSpec Pipeline Output Analysis
 
-**Analyst:** Tobler (Geospatial Data Scientist)
 **Date:** 2026-04-28
 **Input:** 61 output files from `scripts/run_pipeline.py` (50 GeoTIFFs, 12 PNGs, 1 report)
 
@@ -122,7 +121,7 @@ This is a 5-class BARC (Burned Area Reflectance Classification) scheme, not a CB
 - 256×256 crop: 337,350 to 345,030 (E), 3,761,280 to 3,768,960 (N)
 - The crop covers the center of the scene. From the NBR quicklook, the burn scar in 20241215 is in the upper-right quadrant — the LFMC crop may **partially miss** it.
 
-**Recommendation:** Vectorize the continuum-removal hull computation (NumPy broadcasting or scipy.spatial.ConvexHull on the wavelength axis), or use dask chunking. This is tracked as LGT-331.
+**Recommendation:** Vectorize the continuum-removal hull computation (NumPy broadcasting or scipy.spatial.ConvexHull on the wavelength axis), or use dask chunking.
 
 ---
 
@@ -161,7 +160,7 @@ This is a 5-class BARC (Burned Area Reflectance Classification) scheme, not a CB
 | Priority | Gap | Required For | Effort |
 |----------|-----|-------------|--------|
 | P0 | Pre-fire scene for real dNBR | Burn severity product | Data sourcing |
-| P0 | Vectorize LFMC continuum removal | Full-scene LFMC products | Engineering (LGT-331) |
+| P0 | Vectorize LFMC continuum removal | Full-scene LFMC products | Engineering |
 | P1 | MESMA non-negativity constraint | Reliable fraction maps | ~1 hr fix |
 | P1 | ECOSTRESS / USGS endmember library | Publishable severity maps | Data acquisition + loader |
 | P1 | CBI ground truth | Validated severity model | Field data or RAVG download |

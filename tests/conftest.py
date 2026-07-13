@@ -11,7 +11,6 @@ import numpy as np
 import pytest
 import xarray as xr
 
-
 # ---------------------------------------------------------------------------
 # Constants matching Tanager-1 sensor spec
 # ---------------------------------------------------------------------------

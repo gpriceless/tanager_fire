@@ -15,10 +15,10 @@ parameter summary; the 12 functions judges are most likely to call directly
 `plot_severity_summary`, `plot_temporal_trajectory`, `save_figure`,
 `load_ortho_scene`, `list_fire_scenes`) get a runnable usage example.
 
-For architecture and internal design rationale, see `docs/patterns.md` and
-`docs/engineering-memory.md`. This document is a *reference*, not a tutorial —
-keep it in sync with `__init__.py`'s `_LAZY_EXPORTS` table whenever a public
-symbol is added, renamed, or removed.
+For architecture and internal design rationale, see `docs/patterns.md`.
+This document is a *reference*, not a tutorial — keep it in sync with
+`__init__.py`'s `_LAZY_EXPORTS` table whenever a public symbol is added,
+renamed, or removed.
 
 ---
 

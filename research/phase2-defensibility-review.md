@@ -1,8 +1,6 @@
 # Phase 2 Pipeline — Scientific Defensibility Review
 
-**Reviewer:** Tobler (Research Lead / Geospatial Data Scientist)
 **Date:** 2026-04-27
-**Plane Issue:** LGT-295
 **Verdict:** **NOT DEFENSIBLE — 4 blocking issues must be resolved**
 
 ---

@@ -10,14 +10,12 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
-import xarray as xr
-
 import rioxarray  # noqa: F401 — registers .rio accessor
-
+import xarray as xr
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures
@@ -227,8 +225,7 @@ class TestInteractiveMapAddRaster:
 
     def test_add_raster_receives_nbr_style(self, utm_da, mock_leafmap):
         """add_raster must be given the NBR colormap and scale from PRODUCT_STYLES."""
-        from tanager.visualization import interactive_map
-        from tanager.visualization import PRODUCT_STYLES
+        from tanager.visualization import PRODUCT_STYLES, interactive_map
 
         with patch.dict("sys.modules", {"leafmap": mock_leafmap}):
             interactive_map([(utm_da, "nbr")])
@@ -291,8 +288,6 @@ class TestInteractiveMapAddRaster:
 
         da_utm = make_utm_da()
         calls_seen: list = []
-
-        original_to_raster = None
 
         def _spy_to_raster(da, path):
             calls_seen.append({"da": da, "path": path})
@@ -568,7 +563,7 @@ class TestInteractiveMapInputVariety:
         da3 = make_utm_da(seed=12)
 
         with patch.dict("sys.modules", {"leafmap": mock_leafmap}):
-            result = interactive_map([(da1, "nbr"), (da2, "dnbr"), (da3, "lfmc")])
+            interactive_map([(da1, "nbr"), (da2, "dnbr"), (da3, "lfmc")])
 
         mock_map = mock_leafmap.Map.return_value
         assert mock_map.add_raster.call_count == 3

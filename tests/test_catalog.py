@@ -4,7 +4,6 @@ All external network calls are mocked.  Tests verify behaviour, not
 implementation internals.
 """
 
-import io
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,7 +21,6 @@ from tanager.catalog import (
     get_scene_metadata,
     list_fire_scenes,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures

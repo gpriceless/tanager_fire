@@ -9,7 +9,6 @@ skipped via :func:`pytest.importorskip` when not installed.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Sequence
 
 import numpy as np
@@ -17,7 +16,6 @@ import pytest
 import xarray as xr
 
 from tanager import endmembers
-
 
 # ---------------------------------------------------------------------------
 # Helpers — synthetic library factories

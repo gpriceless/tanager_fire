@@ -1,6 +1,5 @@
 # Tanager-1 Data Access & Sensor Characterization
 
-**Author:** Tobler (Research Lead)
 **Date:** 2026-04-27
 **Plane Issue:** TANAGER-3
 

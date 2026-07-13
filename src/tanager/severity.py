@@ -232,10 +232,12 @@ def train_severity_model(
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.model_selection import cross_val_score
 
+    from .config import parallel_jobs
+
     model = RandomForestRegressor(
         n_estimators=n_estimators,
         random_state=random_state,
-        n_jobs=-1,
+        n_jobs=parallel_jobs(),
     )
 
     r2_scores = cross_val_score(model, X_train, y_train, cv=cv_folds, scoring="r2")

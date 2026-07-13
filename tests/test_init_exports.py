@@ -6,6 +6,7 @@ through the top-level `tanager` package to exercise __getattr__.
 """
 
 import pytest
+
 import tanager
 
 # ---------------------------------------------------------------------------

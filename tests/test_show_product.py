@@ -11,14 +11,14 @@ Covers:
 from __future__ import annotations
 
 import matplotlib
+
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
-import xarray as xr
 import rioxarray  # noqa: F401 — registers .rio accessor
-
+import xarray as xr
 
 # ---------------------------------------------------------------------------
 # Shared fixture
@@ -45,6 +45,7 @@ class TestShowProductReturnsFigure:
 
     def test_returns_matplotlib_figure(self, georef_da):
         from matplotlib.figure import Figure
+
         from tanager.visualization import show_product
 
         fig = show_product(georef_da, "nbr", "2025-01-23")
@@ -170,8 +171,9 @@ class TestShowProductAutoDetect:
 
     def test_no_product_name_and_no_da_name_renders(self, georef_da):
         """Passing neither product_name nor da.name must still render without error."""
-        from tanager.visualization import show_product
         from matplotlib.figure import Figure
+
+        from tanager.visualization import show_product
 
         fig = show_product(georef_da)
         try:
@@ -190,7 +192,8 @@ class TestShowProductInteractive:
 
     def test_interactive_calls_interactive_map(self, georef_da):
         """interactive_map must be called when interactive=True."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from tanager.visualization import show_product
 
         mock_map = MagicMock()
@@ -202,7 +205,8 @@ class TestShowProductInteractive:
 
     def test_interactive_passes_da_and_product_name(self, georef_da):
         """The layers list [(da, product_name)] must be forwarded to interactive_map."""
-        from unittest.mock import patch, MagicMock
+        from unittest.mock import MagicMock, patch
+
         from tanager.visualization import show_product
 
         mock_map = MagicMock()
@@ -220,6 +224,7 @@ class TestShowProductInteractive:
     def test_static_does_not_call_interactive_map(self, georef_da):
         """When interactive=False, interactive_map must not be called."""
         from unittest.mock import patch
+
         from tanager.visualization import show_product
 
         with patch("tanager.visualization.interactive_map") as mock_fn:
@@ -240,6 +245,7 @@ class TestShowProductBasemap:
     def test_basemap_called_on_static(self, georef_da):
         """contextily.add_basemap must be invoked for the static render path."""
         from unittest.mock import patch
+
         from tanager.visualization import show_product
 
         with patch("contextily.add_basemap") as mock_ctx:

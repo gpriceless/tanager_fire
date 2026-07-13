@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from functools import reduce
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 import xarray as xr
 
 from tanager.masks import apply_masks, cloud_mask, nodata_mask, water_mask
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -227,7 +225,7 @@ class TestCloudMaskHDF5:
         assert result.values.all()
 
     def test_or_combines_cirrus_and_cloud(self) -> None:
-        """Both fields contribute — pixel is cloudy if either flags it (LGT-297)."""
+        """Both fields contribute — pixel is cloudy if either flags it."""
         ds = make_spectral_dataset(shape=(3, 3))
         cirrus = np.zeros((3, 3), dtype=np.int8)
         cirrus[0, 0] = 1  # cirrus flags (0,0)
@@ -244,7 +242,7 @@ class TestCloudMaskHDF5:
         assert result.values[2, 2]
 
     def test_only_beta_cloud_mask_present(self) -> None:
-        """If cirrus is missing but cloud is present, mask still works (LGT-297)."""
+        """If cirrus is missing but cloud is present, mask still works."""
         ds = make_spectral_dataset(shape=(3, 3))
         cloud = np.zeros((3, 3), dtype=np.int8)
         cloud[2, 2] = 1
@@ -257,7 +255,7 @@ class TestCloudMaskHDF5:
 
 
 class TestCandidateMaskPaths:
-    """The path-search helper covers SWATHS and GRIDS layouts (LGT-297)."""
+    """The path-search helper covers SWATHS and GRIDS layouts."""
 
     def test_grids_path_present_for_cirrus(self) -> None:
         from tanager.masks import _candidate_mask_paths
@@ -347,7 +345,7 @@ class TestReadMaskFieldFromHDF5:
 
 
 class TestCloudMaskDataVariableOrCombine:
-    """Data-variable branch also OR-combines cirrus + cloud (LGT-297)."""
+    """Data-variable branch also OR-combines cirrus + cloud."""
 
     def test_or_combines_when_both_present(self) -> None:
         ds = make_spectral_dataset(shape=(3, 3))
@@ -627,7 +625,7 @@ class TestTask5CombinedMaskVerification:
 
 
 # ---------------------------------------------------------------------------
-# LGT-297 — real ortho HDF5 integration test
+# Real ortho HDF5 integration test
 # ---------------------------------------------------------------------------
 
 
@@ -653,7 +651,7 @@ def _real_fire_scene_paths() -> list[str]:
     reason="Real ortho SR HDF5 scenes not present in data/raw/fire/",
 )
 class TestCloudMaskRealOrthoHDF5:
-    """LGT-297: cloud_mask must read masks from real ortho SR HDF5 files.
+    """cloud_mask must read masks from real ortho SR HDF5 files.
 
     These scenes use the GRIDS layout, not SWATHS. Before the fix,
     _read_beta_cirrus_from_hdf5 silently returned None and cloud_mask
@@ -710,7 +708,7 @@ class TestCloudMaskRealOrthoHDF5:
             mask = cloud_mask(ds, filepath=path)
             cloudy_count = int((~mask).sum().item())
             print(
-                f"[LGT-297] {path.split('/')[-1]}: shape={mask.shape}, "
+                f"{path.split('/')[-1]}: shape={mask.shape}, "
                 f"cloudy_pixels={cloudy_count}/{mask.size}"
             )
             if cloudy_count > 0:
@@ -718,5 +716,5 @@ class TestCloudMaskRealOrthoHDF5:
 
         assert non_trivial_seen, (
             "All real scenes returned all-True masks — cloud masking is "
-            "silently disabled (LGT-297 regression)."
+            "silently disabled (regression)."
         )

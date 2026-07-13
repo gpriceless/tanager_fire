@@ -60,7 +60,7 @@ integration.
 **Temporal recovery.** Four of eleven cataloged scenes were locally downloaded, yielding two
 overlap pairs: Palisades (Dec 15 → Jan 23 swath 2, burn onset) and a second pairing (Jan 23
 swath 1 → Apr 7, 74 days, "Hughes" footprint). NBR, NDVI, and SAI970 trajectories use each
-overlap's common grid only, per TD-7 (pre-fire scene does not overlap the recovery footprints).
+overlap's common grid only, since the pre-fire scene does not overlap the recovery footprints.
 
 **Sensor comparison.** Native Tanager reflectance (128×128 px crop, 12,539 valid px) is
 convolved with published spectral response functions to simulate EMIT (285 bd), PRISMA
@@ -132,7 +132,7 @@ spectra rather than Globe-LFMC 2.0 field observations, which were not bundled lo
 PLSR pipeline and VIP-band physical plausibility are validated, but R²=0.904 is not an
 independent accuracy estimate. (3) Only 4 of 11 cataloged scenes were downloaded, limiting
 the trajectory to two overlap pairs instead of the full 7-date series; the pre-fire scene
-does not overlap the Apr/Jul/Sep footprints (TD-7), forcing the post-Jan recovery segment
+does not overlap the Apr/Jul/Sep footprints, forcing the post-Jan recovery segment
 onto a secondary ("Hughes" footprint) pair.
 
 **Future work.** Integrate USGS/MTBS BARC rasters and AVIRIS-3 Eaton Fire MESMA products

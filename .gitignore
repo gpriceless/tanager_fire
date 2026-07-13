@@ -32,7 +32,7 @@ data/downloads/
 # OS
 .DS_Store
 
-# Claude worktrees
+# Development worktrees
 .claude/worktrees/
 
 # Secrets

@@ -37,6 +37,40 @@ SENSOR = SimpleNamespace(
 )
 
 # ---------------------------------------------------------------------------
+# Runtime / performance tuning
+# ---------------------------------------------------------------------------
+#
+# Default joblib worker cap for the parallel stages (continuum removal in
+# spectral.py, RandomForest training in severity.py).
+#
+# Each continuum-removal loky worker peaks near ~1.3 GB on a 426-band scene,
+# so an unbounded ``n_jobs=-1`` (one worker per core) can exceed available RAM.
+# Bounding n_jobs makes memory predictable: 4 workers ≈ 5 GB per notebook.
+# Heavy one-off runs can raise it via TANAGER_MAX_JOBS.
+
+DEFAULT_MAX_JOBS = 4
+
+
+def parallel_jobs(default: int = DEFAULT_MAX_JOBS) -> int:
+    """Return the joblib worker cap, honouring the ``TANAGER_MAX_JOBS`` env var.
+
+    ``TANAGER_MAX_JOBS`` accepts a positive integer (explicit worker count) or a
+    negative value to mean "all cores" (the legacy unbounded behaviour — opt-in
+    only, since unbounded parallelism can OOM). ``0``, empty, or invalid
+    values fall back to ``default``.
+    """
+    raw = os.environ.get("TANAGER_MAX_JOBS")
+    if not raw or not raw.strip():
+        return default
+    try:
+        val = int(raw)
+    except ValueError:
+        return default
+    if val < 0:
+        return -1  # explicit opt-in to all-cores
+    return val or default
+
+# ---------------------------------------------------------------------------
 # Reference sensor specifications (for spectral degradation simulations)
 #
 # Used by validation.simulate_sensor() to convolve Tanager-1 native 426-band
@@ -102,7 +136,7 @@ BAD_BAND_RANGES: list[tuple[int, int]] = [
 #
 # Source: research/tanager-data-access-evaluation.md, Section 4.
 #
-# NOTE: The proposal assumed 12 scenes; Tobler's research confirmed 11 in the
+# NOTE: The initial estimate was 12 scenes; verification confirmed 11 in the
 # static STAC catalog as of 2026-04-27.  A possible 12th scene may appear
 # when the live catalog is queried at runtime.  Use catalog.list_fire_scenes()
 # as the source of truth for the authoritative scene count and metadata.

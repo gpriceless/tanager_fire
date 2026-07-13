@@ -1,8 +1,6 @@
 # Tanager Open Data Competition: Deep Research & Project Ideas
 
 **Date**: 2026-04-27
-**Author**: Tobler (Geospatial Data Scientist)
-**Issue**: LGT-288 (parent: LGT-287 Training / Fine-Tuning)
 **Supersedes**: `tanager-competition-analysis.md` (initial quick analysis)
 
 ---

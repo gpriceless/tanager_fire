@@ -11,9 +11,10 @@ The tests verify that:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import matplotlib
+
 matplotlib.use("Agg")  # non-interactive backend before pyplot import
 
 import matplotlib.pyplot as plt
@@ -22,7 +23,6 @@ import pytest
 import xarray as xr
 
 from tanager.visualization import add_basemap, plot_map
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
