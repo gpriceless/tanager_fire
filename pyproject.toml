@@ -59,6 +59,7 @@ select = ["E", "F", "W", "I"]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
+pythonpath = ["."]
 markers = [
     "integration: tests that depend on bulk data assets (real Tanager HDF5 scenes)",
     "smoke: end-to-end smoke tests exercising the public API as a user would",
