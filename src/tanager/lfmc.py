@@ -584,8 +584,11 @@ def load_globe_lfmc(
             mask = haystack.apply(lambda s: any(p in s for p in patterns))
             df = df[mask]
 
-    if tanager_scene_dates is not None and len(list(tanager_scene_dates)) > 0:
-        scene_dates = pd.to_datetime(list(tanager_scene_dates))
+    _scene_date_list = (
+        list(tanager_scene_dates) if tanager_scene_dates is not None else []
+    )
+    if _scene_date_list:
+        scene_dates = pd.to_datetime(_scene_date_list)
         window = pd.Timedelta(days=int(colocation_window_days))
 
         def _is_colocated(d: Any) -> bool:

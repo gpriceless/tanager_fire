@@ -443,6 +443,21 @@ class TestLoadGlobeLFMC:
         assert len(colocated) == 1
         assert str(colocated["date"].iloc[0]).startswith("2025-01-15")
 
+    def test_tanager_colocation_flag_accepts_generator(self, tmp_path):
+        pytest.importorskip("geopandas")
+        path = self._write_csv(tmp_path)
+        # A generator is single-use; the loader must materialize it once so the
+        # colocation flag is still computed (regression for LGT-1017).
+        gdf = lfmc.load_globe_lfmc(
+            path,
+            tanager_scene_dates=(d for d in ["2025-01-23"]),
+            colocation_window_days=30,
+        )
+        assert "tanager_colocated" in gdf.columns
+        colocated = gdf[gdf["tanager_colocated"]]
+        assert len(colocated) == 1
+        assert str(colocated["date"].iloc[0]).startswith("2025-01-15")
+
     def test_missing_file_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError):
             lfmc.load_globe_lfmc(tmp_path / "missing.csv")
