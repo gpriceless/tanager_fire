@@ -1,6 +1,6 @@
 # FireSpec
 
-**Hyperspectral wildfire analysis for Planet Tanager-1 imagery — burn severity mapping and live
+**Hyperspectral wildfire analysis for Planet Tanager-1 imagery | burn severity mapping and live
 fuel moisture estimation for the 2025 LA wildfires.**
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
@@ -11,7 +11,7 @@ FireSpec is an open-source Python toolkit built for the [Planet Tanager Open Dat
 Competition](#competition). It turns Tanager-1's 426-band hyperspectral imagery (380–2500 nm,
 30 m GSD) into operational wildfire products: MESMA-based burn severity (CBI/BARC), live fuel
 moisture content (LFMC), multi-temporal recovery trajectories, and cross-sensor comparisons
-against EMIT, PRISMA, and Sentinel-2 — using the 2025 LA wildfires as the case study.
+against EMIT, PRISMA, and Sentinel-2 using the 2025 LA wildfires as the case study.
 
 ---
 
