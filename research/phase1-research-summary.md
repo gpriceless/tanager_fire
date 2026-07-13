@@ -102,6 +102,6 @@ Phase 1 research validates the FireSpec approach with high confidence. The liter
 - Roberts et al. (2006) JGR — AVIRIS LFMC in SoCal chaparral (DOI: 10.1029/2005JG000113)
 - Quan et al. (2021) PLOS ONE — SAI indices for water content (DOI: 10.1371/journal.pone.0249351)
 - Yebra et al. (2024) Sci Data — Globe-LFMC 2.0 (DOI: 10.1038/s41597-024-03159-6)
-- AVIRIS-3 LA Rapid Response (2025) GRL (DOI: 10.1029/2025GL118756)
+- Ward-Baranyay, Coleman et al. (2026) GRL (DOI: 10.1029/2025GL118756)
 
 Full literature tables in `docs/research-memory.md`.

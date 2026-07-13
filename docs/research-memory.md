@@ -148,7 +148,7 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 | Roberts et al. | 2018 | AVIRIS | IES + uSZU band selection for post-fire MESMA. r2=0.74 (ash), 0.84 (GV) vs WorldView-2. | **High** -- endmember selection methodology (In-CoB + uSZU) |
 | Veraverbeke et al. | 2018 | Review | Comprehensive hyperspectral fire RS review. VSWIR is primary domain. | **High** -- authoritative review framing our approach |
 | Veraverbeke et al. | 2014 | AVIRIS | Burned fraction vs GeoCBI R2=0.86. Significantly better than Landsat. | **High** -- upper bound for severity accuracy |
-| AVIRIS-3 Rapid Response | 2025 | AVIRIS-3 | MESMA char/ash fractions over Eaton Fire. 86.3% structural damage accuracy at 3-4m. | **Critical** -- direct LA fire validation source |
+| Ward-Baranyay, Coleman et al. | 2026 | AVIRIS-3 | AVIRIS-3 rapid response to January 2025 LA wildfires; MESMA char/ash fractions, 86.3% structural damage accuracy at 3-4m. | **Critical** -- direct LA fire validation source |
 | Quintano et al. | 2017 | Landsat+LST | MESMA fractions + Land Surface Temperature improves severity mapping. | **Moderate** -- ancillary data fusion idea |
 | Quintano et al. | 2013 | Landsat TM | First MESMA for burn severity in Mediterranean. Kappa >0.75. | **Moderate** -- established MESMA-fire methodology |
 | Fernandez-Manso et al. | 2016 | Landsat | Multi-temporal MESMA fraction time series for recovery | **Moderate** -- validates temporal trajectory approach |
@@ -159,7 +159,7 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 - Quintano et al. 2023: 10.1016/j.rse.2023.113670
 - Roberts et al. 2018: 10.3390/rs10030389
 - Veraverbeke et al. 2018: 10.1016/j.rse.2018.06.020
-- AVIRIS-3 LA 2025: 10.1029/2025GL118756
+- Ward-Baranyay et al. 2026: 10.1029/2025GL118756
 
 ### Live Fuel Moisture Content (LFMC)
 

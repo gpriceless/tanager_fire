@@ -157,7 +157,7 @@ comparison to a Quintano-style field-CBI benchmark once ground truth is availabl
   USDA Forest Service.
 - Veraverbeke, S., et al. (2018). Hyperspectral remote sensing of fire: review.
   *Remote Sensing of Environment*, 216, 105–121. DOI: 10.1016/j.rse.2018.06.020.
-- AVIRIS-3 Rapid Response Team (2025). MESMA char/ash mapping of the Eaton Fire. *Geophysical
-  Research Letters*. DOI: 10.1029/2025GL118756.
+- Ward-Baranyay, Coleman et al. (2026). AVIRIS-3 Rapid Response to January 2025 Los Angeles
+  Wildfires. *Geophysical Research Letters*. DOI: 10.1029/2025GL118756.
 - Yebra, M., et al. (2024). Globe-LFMC 2.0: training/validation dataset for LFMC. *Scientific
   Data*. DOI: 10.1038/s41597-024-03159-6.
