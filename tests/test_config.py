@@ -183,12 +183,15 @@ class TestFireScenes:
         assert len(FIRE_SCENES) == 11
 
     def test_required_keys_and_types(self):
-        required = {"datetime", "phase", "days_relative_to_ignition", "notes", "bbox"}
+        required = {"datetime", "phase", "fire_complex",
+                     "days_relative_to_ignition", "notes", "bbox"}
         for scene_id, meta in FIRE_SCENES.items():
             assert required <= set(meta), f"{scene_id} missing keys"
             assert meta["phase"] in self.VALID_PHASES, scene_id
             days = meta["days_relative_to_ignition"]
             assert days is None or isinstance(days, int), scene_id
+            fc = meta["fire_complex"]
+            assert fc is None or fc in ("palisades", "hughes"), scene_id
 
     def test_datetimes_parse_and_match_scene_ids(self):
         for scene_id, meta in FIRE_SCENES.items():

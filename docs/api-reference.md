@@ -67,9 +67,17 @@ Default input to `spectral.mask_bad_bands`.
 ### `FIRE_SCENES`
 
 `dict[str, dict]` — hardcoded catalog of known fire-collection scene IDs to
-metadata (`datetime`, `phase`, `days_relative_to_ignition`, `notes`, `bbox`).
+metadata (`datetime`, `phase`, `fire_complex`, `days_relative_to_ignition`,
+`notes`, `bbox`).  `fire_complex` is `"palisades"`, `"hughes"`, or `None`
+(unverified); `days_relative_to_ignition` is relative to that complex's
+ignition date (see `FIRE_IGNITION_DATES`).
 Use `catalog.list_fire_scenes()` for the live, authoritative source; this
 dict is a static reference snapshot.
+
+### `FIRE_IGNITION_DATES`
+
+`dict[str, str]` — maps fire-complex name to its ignition date (ISO format).
+Palisades/Eaton ignited 2025-01-07; Hughes ignited 2025-01-22.
 
 ### `BAND_ALIASES`
 

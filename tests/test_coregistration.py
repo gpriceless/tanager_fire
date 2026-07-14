@@ -466,7 +466,7 @@ def test_real_post_fire_and_recovery_align_and_dnbr_in_range():
     reason="real pre-fire/post-fire ortho_sr scenes not available locally",
 )
 def test_real_pre_and_post_fire_have_minimal_or_no_overlap():
-    """Pre-fire (Dec 15) covers Malibu coast; post-fire (Jan 23) covers Eaton.
+    """Pre-fire (Dec 15) covers Malibu coast; post-fire (Jan 23) covers Hughes/Castaic.
 
     These scenes are geographically distant — the Y
     ranges are disjoint (~3.75M m vs ~3.81M m UTM north). The function

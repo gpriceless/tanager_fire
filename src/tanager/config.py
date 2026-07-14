@@ -132,6 +132,19 @@ BAD_BAND_RANGES: list[tuple[int, int]] = [
 ]
 
 # ---------------------------------------------------------------------------
+# Fire complex ignition dates
+#
+# The LA-area Tanager scenes span two distinct fire complexes separated by
+# ~40 km.  days_relative_to_ignition in FIRE_SCENES is computed against
+# the ignition date of the fire_complex each scene covers.
+# ---------------------------------------------------------------------------
+
+FIRE_IGNITION_DATES: dict[str, str] = {
+    "palisades": "2025-01-07",   # Palisades Fire (& nearby Eaton Fire, same day)
+    "hughes":    "2025-01-22",   # Hughes Fire, Castaic — 15 days later
+}
+
+# ---------------------------------------------------------------------------
 # Fire scene catalog
 #
 # Source: research/tanager-data-access-evaluation.md, Section 4.
@@ -145,8 +158,12 @@ BAD_BAND_RANGES: list[tuple[int, int]] = [
 # live STAC query (pystac reads item.bbox from catalog.json on the fly).
 # The catalog module populates bbox when scenes are fetched at runtime.
 #
-# Phases follow the competition analysis timeline relative to the
-# Palisades/Eaton fires (ignition: 2025-01-07, Los Angeles area):
+# fire_complex identifies which fire each scene covers; this determines the
+# ignition date used to compute days_relative_to_ignition.  Scenes verified
+# against HDF5 grid coordinates on 2026-07-13.
+#
+# Phases follow the competition analysis timeline relative to each scene's
+# fire_complex ignition date:
 #   pre-fire        — before ignition
 #   post-fire       — days 0–30 post-ignition
 #   early-recovery  — days 31–120
@@ -159,41 +176,47 @@ FIRE_SCENES: dict[str, dict] = {
     "20241215_185916_33_4001": {
         "datetime": "2024-12-15T18:59:16Z",
         "phase": "pre-fire",
+        "fire_complex": "palisades",
         "days_relative_to_ignition": -23,
-        "notes": "Pre-fire baseline; ~23 days before Palisades/Eaton ignition",
+        "notes": "Pre-fire baseline (Palisades coast, ~34.0°N)",
         "bbox": None,  # Populated at runtime via catalog.list_fire_scenes()
     },
     "20250123_185507_64_4001": {
         "datetime": "2025-01-23T18:55:07Z",
         "phase": "post-fire",
-        "days_relative_to_ignition": 16,
-        "notes": "Immediate post-fire; primary swath over burn scar",
+        "fire_complex": "hughes",
+        "days_relative_to_ignition": 1,
+        "notes": "Hughes Fire area (Castaic, ~34.5°N); 1 day post-Hughes ignition",
         "bbox": None,
     },
     "20250123_185518_92_4001": {
         "datetime": "2025-01-23T18:55:18Z",
         "phase": "post-fire",
+        "fire_complex": "palisades",
         "days_relative_to_ignition": 16,
-        "notes": "Immediate post-fire; adjacent swath",
+        "notes": "Palisades Fire area (~34.0°N); overlaps Dec 15 pre-fire footprint",
         "bbox": None,
     },
     "20250407_192235_24_4001": {
         "datetime": "2025-04-07T19:22:35Z",
         "phase": "early-recovery",
-        "days_relative_to_ignition": 90,
-        "notes": "Early recovery (~90 days post-ignition); primary swath",
+        "fire_complex": "hughes",
+        "days_relative_to_ignition": 75,
+        "notes": "Hughes Fire area (Castaic, ~34.5°N); 75 days post-Hughes ignition",
         "bbox": None,
     },
     "20250407_192229_16_4001": {
         "datetime": "2025-04-07T19:22:29Z",
         "phase": "early-recovery",
+        "fire_complex": None,
         "days_relative_to_ignition": 90,
-        "notes": "Early recovery (~90 days post-ignition); adjacent swath",
+        "notes": "Adjacent swath; fire_complex unverified (no local HDF5)",
         "bbox": None,
     },
     "20250724_190927_83_4001": {
         "datetime": "2025-07-24T19:09:27Z",
         "phase": "other",
+        "fire_complex": None,
         "days_relative_to_ignition": None,
         "notes": "Utah (38.5°N, -112°W); outside LA fire footprint",
         "bbox": None,
@@ -201,20 +224,23 @@ FIRE_SCENES: dict[str, dict] = {
     "20250726_192343_21_4001": {
         "datetime": "2025-07-26T19:23:43Z",
         "phase": "mid-recovery",
+        "fire_complex": None,
         "days_relative_to_ignition": 200,
-        "notes": "Mid-recovery (~200 days post-ignition)",
+        "notes": "Mid-recovery; fire_complex unverified (no local HDF5)",
         "bbox": None,
     },
     "20250726_192422_87_4001": {
         "datetime": "2025-07-26T19:24:22Z",
         "phase": "mid-recovery",
+        "fire_complex": None,
         "days_relative_to_ignition": 200,
-        "notes": "Mid-recovery (~200 days post-ignition); adjacent swath",
+        "notes": "Mid-recovery; adjacent swath; fire_complex unverified",
         "bbox": None,
     },
     "20250902_190116_02_4001": {
         "datetime": "2025-09-02T19:01:16Z",
         "phase": "other",
+        "fire_complex": None,
         "days_relative_to_ignition": None,
         "notes": "Utah (38.5°N, -112°W); outside LA fire footprint",
         "bbox": None,
@@ -222,6 +248,7 @@ FIRE_SCENES: dict[str, dict] = {
     "20250902_190121_86_4001": {
         "datetime": "2025-09-02T19:01:21Z",
         "phase": "other",
+        "fire_complex": None,
         "days_relative_to_ignition": None,
         "notes": "Utah (38.5°N, -112°W); outside LA fire footprint",
         "bbox": None,
@@ -229,8 +256,9 @@ FIRE_SCENES: dict[str, dict] = {
     "20250920_193207_61_4001": {
         "datetime": "2025-09-20T19:32:07Z",
         "phase": "late-recovery",
+        "fire_complex": None,
         "days_relative_to_ignition": 256,
-        "notes": "Late recovery (~256 days post-ignition); LA area (33.9°N, -118.5°W)",
+        "notes": "Late recovery; LA area (33.9°N, -118.5°W); fire_complex unverified",
         "bbox": None,
     },
 }

@@ -113,7 +113,7 @@ After masking: **~330-346 usable bands** remain. Adaptive per-scene SNR filterin
 | `20250902_190121_86_4001` | 2025-09-02 | TBD | LATE RECOVERY / N. Arizona? |
 | `20250920_193207_61_4001` | 2025-09-20 | 34 | N. Arizona confirmed |
 
-**Critical pair:** Dec 15 pre-fire + Jan 23 post-fire (brackets Palisades + Eaton fires)
+**Critical pair:** Dec 15 pre-fire + Jan 23 swath 2 post-fire (brackets Palisades fire; Jan 23 swath 1 covers Hughes fire)
 
 ### Cross-Validation Data
 
@@ -473,7 +473,7 @@ Three-tier approach (recommended: Tier 1 + Tier 2 for competition):
 | Scene | Date | Phase | Grid | Notes |
 |-------|------|-------|------|-------|
 | 20241215_185916_33_4001 | 2024-12-15 | pre-fire | 713×791 | Malibu/Palisades coast |
-| 20250123_185507_64_4001 | 2025-01-23 | post-fire | 1047×961 | Eaton Fire area (north/east LA) |
+| 20250123_185507_64_4001 | 2025-01-23 | post-fire | 1047×961 | Hughes Fire area (Castaic, ~34.5°N) |
 | 20250123_185518_92_4001 | 2025-01-23 | post-fire | TBD | Adjacent swath (likely overlaps pre-fire) |
 | 20250407_192235_24_4001 | 2025-04-07 | early-recovery | 869×1039 | North LA area |
 | 20250407_192229_16_4001 | 2025-04-07 | early-recovery | TBD | Adjacent swath |

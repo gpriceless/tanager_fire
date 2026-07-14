@@ -128,7 +128,7 @@ pre is (713, 791), post is (1047, 961).
 | Post-fire | 1047 × 961 | 345,105 – 373,905 | 3,805,935 – 3,837,315 |
 | Recovery | 869 × 1039 | 341,310 – 372,480 | 3,818,850 – 3,844,920 |
 
-**Critical observation:** The pre-fire and post-fire scenes have **minimal spatial overlap**. Their UTM grid extents barely intersect. The pre-fire scene covers the Malibu/Pacific Palisades coast area while the post-fire scene covers the Eaton Fire area further north/east.
+**Critical observation:** The pre-fire and post-fire scenes have **minimal spatial overlap**. Their UTM grid extents barely intersect. The pre-fire scene covers the Malibu/Pacific Palisades coast area while the post-fire scene covers the Hughes Fire area (Castaic, ~34.5°N, ~40 km NW of Eaton).
 
 **Implication:** dNBR between these specific scenes is scientifically questionable — they don't cover the same fire. The Jan 23 second swath (20250123_185518_92_4001) may overlap better with the Dec 15 pre-fire scene.
 
