@@ -438,58 +438,71 @@ def stage_mesma_image(scene: xr.Dataset, scene_id: str, out_dir: Path) -> tuple[
     return detail, artifacts
 
 
+_KEY_BENSON_DNBR_EDGES = np.array([0.10, 0.27, 0.44, 0.66])
+_BARC_CLASS_NAMES = {0: "Unburned", 1: "Low", 2: "Moderate-Low", 3: "Moderate-High", 4: "High"}
+
+
 @_stage("burn_severity")
-def stage_severity(fractions: xr.Dataset, scene_id: str, out_dir: Path) -> tuple[str, list[Path]]:
-    """Train a simple synthetic severity model and predict on fractions.
+def stage_severity_from_dnbr(dnbr_da: xr.DataArray, label: str, out_dir: Path) -> tuple[str, list[Path]]:
+    """Classify a dNBR map into BARC severity classes using Key & Benson (2006) thresholds."""
+    dnbr_v = np.asarray(dnbr_da.values, dtype=np.float64)
+    finite = np.isfinite(dnbr_v)
 
-    No CBI ground truth is available, so we synthesise plausible CBI from the
-    char fraction (CBI ≈ 3 * char) for the purpose of exercising the
-    train/predict path end-to-end. This is documented as synthetic in the
-    report.
-    """
-    from tanager.severity import predict_severity, train_severity_model
+    severity_v = np.full(dnbr_v.shape, np.nan, dtype=np.float64)
+    severity_v[finite] = np.digitize(dnbr_v[finite], _KEY_BENSON_DNBR_EDGES, right=False)
 
-    char = np.asarray(fractions["char"].values, dtype=np.float32).ravel()
-    synthetic_cbi = np.clip(3.0 * char, 0.0, 3.0)
-    # Add a tiny amount of noise so the regressor doesn't perfectly fit.
-    rng = np.random.default_rng(0)
-    synthetic_cbi = synthetic_cbi + rng.normal(0.0, 0.05, size=synthetic_cbi.shape)
-    synthetic_cbi = np.clip(synthetic_cbi, 0.0, 3.0)
+    severity_map = xr.DataArray(
+        severity_v,
+        dims=dnbr_da.dims,
+        coords={k: dnbr_da.coords[k] for k in dnbr_da.dims if k in dnbr_da.coords},
+        name="barc_severity",
+        attrs={
+            "long_name": "barc_severity_class",
+            "classification_system": "BARC",
+            "class_codes": "0=unburned, 1=low, 2=moderate-low, 3=moderate-high, 4=high",
+            "thresholds_dnbr": "0.10, 0.27, 0.44, 0.66",
+            "reference": "Key & Benson (2006)",
+            "ground_truth_source": "none — literature dNBR thresholds applied to measured pre/post NBR",
+        },
+    )
 
-    train = train_severity_model(fractions, synthetic_cbi, n_estimators=50, cv_folds=3)
-    out = predict_severity(fractions, train)
-
-    # Flag the synthetic ground-truth lineage on the CBI output so downstream
-    # consumers do not mistake it for a validated CBI product.
-    out["cbi_map"].attrs["ground_truth_source"] = "synthetic (3 x char)"
-
-    crs = "EPSG:32611"
+    try:
+        crs = _crs_for(dnbr_da.to_dataset(name="dnbr"))
+    except Exception:
+        crs = None
+    crs = crs or "EPSG:32611"
     artifacts = []
-    artifacts.append(_write_geotiff(out["cbi_map"], out_dir / f"{scene_id}_cbi.tif", crs))
-    artifacts.append(_write_geotiff(out["severity_map"], out_dir / f"{scene_id}_barc_severity.tif", crs))
+    tif = out_dir / f"{label}_barc_severity.tif"
+    artifacts.append(_write_geotiff(severity_map, tif, crs))
     try:
         import matplotlib.pyplot as plt
-        _cbi_png = out_dir / f"{scene_id}_cbi.png"
-        product_name = "cbi"
-        fig = tanager.plot_map(out["cbi_map"], title=f"{scene_id} synthetic CBI", product_name=product_name, basemap=False)
-        tanager.save_figure(fig, _cbi_png.with_suffix(""), formats=["png"])
+        png = out_dir / f"{label}_barc_severity.png"
+        fig = tanager.plot_map(
+            severity_map,
+            title=f"{label} BARC severity — Key & Benson (2006) dNBR thresholds",
+            product_name="severity",
+            basemap=False,
+        )
+        tanager.save_figure(fig, png.with_suffix(""), formats=["png"])
         plt.close(fig)
-        artifacts.append(_cbi_png)
+        artifacts.append(png)
     except Exception as exc:
-        log.warning("plot_map quicklook for %s/cbi skipped: %s", scene_id, exc)
+        log.warning("plot_map quicklook for %s/severity skipped: %s", label, exc)
         try:
             artifacts.append(_quicklook_png(
-                out["cbi_map"], out_dir / f"{scene_id}_cbi.png",
-                f"{scene_id} synthetic CBI", cmap="hot_r",
+                severity_map, out_dir / f"{label}_barc_severity.png",
+                f"{label} BARC severity", cmap="YlOrRd",
             ))
         except Exception:
             pass
+
+    class_pcts = []
+    for code, name in _BARC_CLASS_NAMES.items():
+        pct = 100.0 * np.mean(severity_v[finite] == code) if finite.any() else 0.0
+        class_pcts.append(f"{name}={pct:.1f}%")
     detail = (
-        f"trained RF (synthetic CBI, ground_truth_source='synthetic (3 x char)') "
-        f"cv_r2={train['r2']:.3f} cv_rmse={train['rmse']:.3f}; "
-        f"predicted CBI (continuous, 0-3 per Key & Benson 2006) mean="
-        f"{float(np.nanmean(out['cbi_map'].values)):.3f}; "
-        f"BARC severity classes (categorical, 0-4) written to *_barc_severity.tif"
+        f"Key & Benson (2006) dNBR thresholds [0.10,0.27,0.44,0.66]; "
+        f"n_valid={int(finite.sum())}; {'; '.join(class_pcts)}"
     )
     return detail, artifacts
 
@@ -652,7 +665,7 @@ def stage_sensor_comparison(scene: xr.Dataset, scene_id: str, out_dir: Path,
 
 
 def process_scene(scene_id: str, filepath: Path, out_dir: Path,
-                  do_mesma: bool, do_severity: bool) -> SceneReport:
+                  do_mesma: bool) -> SceneReport:
     log.info("=== processing %s ===", scene_id)
     report = SceneReport(scene_id=scene_id, filepath=filepath)
 
@@ -681,24 +694,6 @@ def process_scene(scene_id: str, filepath: Path, out_dir: Path,
     if do_mesma:
         mesma_stage = stage_mesma_image(masked, scene_id, out_dir)
         report.stages.append(mesma_stage)
-        if do_severity and mesma_stage.status == "ok":
-            # Reload fractions Dataset from disk via re-running mesma is
-            # unnecessary — but stage didn't return the Dataset itself. To
-            # avoid re-running, do the severity stage inline using the same
-            # fractions in memory.
-            try:
-                from tanager.endmembers import extract_image_endmembers  # noqa
-                # The fractions are stashed by stage_mesma_image only as artifacts
-                # on disk. Read the four GeoTIFF fractions back into a Dataset.
-                frac_ds = _load_fractions_from_artifacts(scene_id, out_dir)
-                if frac_ds is not None:
-                    sev_stage = stage_severity(frac_ds, scene_id, out_dir)
-                    report.stages.append(sev_stage)
-            except Exception as exc:
-                report.stages.append(StageResult(
-                    name="burn_severity", status="error",
-                    detail=f"could not reload fractions for severity: {exc}",
-                ))
 
     # Free the cube before next scene.
     try:
@@ -712,21 +707,6 @@ def process_scene(scene_id: str, filepath: Path, out_dir: Path,
         del stage_masks._masked
     gc.collect()
     return report
-
-
-def _load_fractions_from_artifacts(scene_id: str, out_dir: Path) -> Optional[xr.Dataset]:
-    import rioxarray  # noqa
-    fracs: dict[str, xr.DataArray] = {}
-    for var in ("char", "pv", "npv", "soil"):
-        p = out_dir / f"{scene_id}_frac_{var}.tif"
-        if not p.exists():
-            return None
-        da = xr.open_dataarray(str(p), engine="rasterio")
-        # rasterio reader gives dims (band, y, x); take band 0.
-        if "band" in da.dims:
-            da = da.isel(band=0).drop_vars("band")
-        fracs[var] = da.rename(var)
-    return xr.Dataset(fracs)
 
 
 # ---------------------------------------------------------------------------
@@ -796,20 +776,14 @@ def write_report(scene_reports: list[SceneReport], multi_stages: list[StageResul
         "not for publishable severity products."
     )
     lines.append(
-        "- **No CBI ground truth — outputs are synthetic.** The burn-severity "
-        "model was trained on a synthetic CBI proxy (`3 * char`) so the "
-        "train/predict path is exercised end-to-end. CBI outputs are tagged "
-        "`ground_truth_source = 'synthetic (3 x char)'` and must NOT be treated "
-        "as validated CBI. Swap in real RAVG or field CBI as ground truth once "
-        "available."
-    )
-    lines.append(
-        "- **CBI vs BARC are distinct products.** `*_cbi.tif` is the continuous "
-        "Composite Burn Index (0-3 scale, Key & Benson 2006); `*_barc_severity.tif` "
-        "is the 5-class BARC severity map (categorical, 0-4: unburned, low, "
-        "moderate-low, moderate-high, high). Class 4 does not exist in CBI. "
-        "Metadata attributes `scale` and `classification_system` on the "
-        "DataArrays disambiguate the two."
+        "- **No CBI ground truth — severity uses literature dNBR thresholds.** "
+        "The `train_severity_model()` RF path is available but unused because no "
+        "field CBI plots or MTBS/BARC rasters cover the Palisades footprint. "
+        "Severity is classified via Key & Benson (2006) dNBR breakpoints "
+        "[0.10, 0.27, 0.44, 0.66] applied to the measured pre/post dNBR. "
+        "These thresholds were derived for Landsat dNBR; applying them to "
+        "Tanager's narrower NBR bands is standard practice but not formally "
+        "recalibrated for this sensor."
     )
     lines.append(
         "- **LFMC predict_lfmc not exercised.** A trained PLSR model artifact "
@@ -862,9 +836,7 @@ def main() -> int:
     # severity stage on the smallest one (20241215) to keep the run bounded.
     for scene_id in ("20241215", "20250123_swath1", "20250123_swath2", "20250407"):
         do_mesma = scene_id == "20241215"
-        do_sev = do_mesma
-        report = process_scene(scene_id, SCENES[scene_id], OUT_DIR, do_mesma=do_mesma,
-                                do_severity=do_sev)
+        report = process_scene(scene_id, SCENES[scene_id], OUT_DIR, do_mesma=do_mesma)
         scene_reports.append(report)
 
     # Multi-scene: two dNBR products.
@@ -886,13 +858,21 @@ def main() -> int:
                      label, pre_key, post_key, kind)
             pre = load_ortho_scene(SCENES[pre_key])
             post = load_ortho_scene(SCENES[post_key])
-            # Subset to NBR-relevant bands (~860 nm NIR and ~2200 nm SWIR2) so
-            # the reproject only touches two bands instead of 426.
             pre_nbr = pre.sel(wavelength=[860.0, 2200.0], method="nearest")
             post_nbr = post.sel(wavelength=[860.0, 2200.0], method="nearest")
-            multi_stages.append(stage_dnbr(pre_nbr, post_nbr, label, OUT_DIR))
+            dnbr_stage = stage_dnbr(pre_nbr, post_nbr, label, OUT_DIR)
+            multi_stages.append(dnbr_stage)
             del pre, post, pre_nbr, post_nbr
             gc.collect()
+
+            if kind == "burn-severity" and dnbr_stage.status == "ok":
+                import rioxarray  # noqa
+                dnbr_tif = OUT_DIR / f"{label}_dnbr.tif"
+                dnbr_da = xr.open_dataarray(str(dnbr_tif), engine="rasterio")
+                if "band" in dnbr_da.dims:
+                    dnbr_da = dnbr_da.isel(band=0).drop_vars("band")
+                multi_stages.append(stage_severity_from_dnbr(dnbr_da, label, OUT_DIR))
+                dnbr_da.close()
         except Exception as exc:
             multi_stages.append(StageResult(
                 name=f"dnbr_{label}", status="error",
