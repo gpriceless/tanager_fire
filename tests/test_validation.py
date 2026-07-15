@@ -512,8 +512,7 @@ class TestLoadBARCReference:
         assert da.values[1, 1] == -1
 
     def test_target_grid_alignment_same_crs(self, tmp_path):
-        rasterio = pytest.importorskip("rasterio")
-        from rasterio.transform import from_origin
+        pytest.importorskip("rasterio")
 
         codes = np.array([[1, 2], [3, 4]], dtype=np.int16)
         path = tmp_path / "barc_align.tif"

@@ -671,8 +671,6 @@ def _aggregate_fractions_to_grid(
         xr.Dataset aligned to the target grid, with the same fraction
         variables.
     """
-    src_crs = fractions.attrs.get("crs")
-
     # Step 1: coarsen to approximate target resolution.
     if "x" in fractions.coords and "y" in fractions.coords:
         src_x = np.asarray(fractions.coords["x"].values)
@@ -1043,7 +1041,6 @@ def _reproject_classified(
     Uses nearest-neighbour resampling (the only valid method for classified
     data) and fills areas outside the source extent with the nodata sentinel.
     """
-    import rasterio
     from rasterio.crs import CRS
     from rasterio.enums import Resampling
     from rasterio.transform import from_bounds
