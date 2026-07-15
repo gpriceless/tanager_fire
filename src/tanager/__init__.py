@@ -78,6 +78,9 @@ _LAZY_EXPORTS: dict[str, str] = {
     "cross_validate_aviris3": "validation",
     "load_barc_reference": "validation",
     "SBS_CODE_MAP": "validation",
+    "load_dins_reference": "validation",
+    "cross_check_dins": "validation",
+    "DINS_DAMAGE_ORDINAL": "validation",
     # visualization --------------------------------------------------------
     "plot_map": "visualization",
     "plot_before_after": "visualization",

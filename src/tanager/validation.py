@@ -112,6 +112,18 @@ SBS_CODE_MAP: Mapping[int, int] = {
     4: 4,   # High (field-corrected)
 }
 
+# CAL FIRE DINS (Damage INSpection) structure-damage categories, ordered by
+# increasing damage. Keys match the raw ``DAMAGE`` field values in DINS
+# GeoJSON exports; values are the ordinal scale used for rank correlation
+# against continuous severity products (dNBR, char fraction).
+DINS_DAMAGE_ORDINAL: Mapping[str, int] = {
+    "No Damage": 0,
+    "Affected (1-9%)": 1,
+    "Minor (10-25%)": 2,
+    "Major (26-50%)": 3,
+    "Destroyed (>50%)": 4,
+}
+
 
 def load_aviris3_reference(
     filepath: FilePath,
@@ -1070,6 +1082,322 @@ def _reproject_classified(
         coords={"y": dst_y, "x": dst_x},
         attrs={**source.attrs, "crs": dst_crs},
     )
+
+
+def load_dins_reference(
+    filepath: FilePath,
+    target_crs: str = "EPSG:32611",
+    *,
+    damage_field: str = "DAMAGE",
+) -> "Any":
+    """Load a CAL FIRE DINS structure-damage GeoJSON as a projected GeoDataFrame.
+
+    DINS (Damage INSpection) points are per-structure field assessments
+    published by CAL FIRE after major fires. Each point carries a ``DAMAGE``
+    category (No Damage → Destroyed); this loader reprojects the points to
+    the raster CRS used by Tanager products and attaches a ``damage_ordinal``
+    column (0..4, see :data:`DINS_DAMAGE_ORDINAL`) for rank-based comparison
+    against continuous severity products.
+
+    Args:
+        filepath: Path to the DINS GeoJSON (WGS84 point geometry). Files
+            without an embedded CRS are assumed to be EPSG:4326.
+        target_crs: CRS to reproject the points into. Defaults to UTM 11N
+            (``EPSG:32611``), the grid used by the Palisades/Eaton Tanager
+            scenes.
+        damage_field: Name of the damage-category attribute. Rows whose
+            value is not a known :data:`DINS_DAMAGE_ORDINAL` category are
+            dropped with a warning.
+
+    Returns:
+        geopandas.GeoDataFrame in ``target_crs`` with the original attribute
+        columns plus ``damage_ordinal`` (int). Rows with missing geometry or
+        missing/unknown damage category are dropped.
+
+    Raises:
+        FileNotFoundError: If ``filepath`` does not exist.
+        ValueError: If ``damage_field`` is absent from the file.
+    """
+    import geopandas as gpd
+
+    path = Path(filepath)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"DINS reference file not found: {filepath}. DINS GeoJSON exports "
+            "are published by CAL FIRE per incident (e.g. Palisades 2025) via "
+            "https://data.ca.gov / the CAL FIRE DINS viewer."
+        )
+
+    gdf = gpd.read_file(path)
+    if damage_field not in gdf.columns:
+        raise ValueError(
+            f"Damage field {damage_field!r} not found in {path.name}; "
+            f"available columns: {list(gdf.columns)}"
+        )
+
+    n_raw = len(gdf)
+    gdf = gdf[gdf.geometry.notna() & gdf[damage_field].notna()].copy()
+
+    if gdf.crs is None:
+        logger.warning(
+            "load_dins_reference: %s has no CRS; assuming EPSG:4326 (WGS84).",
+            path.name,
+        )
+        gdf = gdf.set_crs("EPSG:4326")
+    gdf = gdf.to_crs(target_crs)
+
+    ordinal = gdf[damage_field].map(DINS_DAMAGE_ORDINAL)
+    unknown = ordinal.isna()
+    if unknown.any():
+        logger.warning(
+            "load_dins_reference: dropping %d point(s) with unrecognised %s "
+            "values %s (known categories: %s).",
+            int(unknown.sum()),
+            damage_field,
+            sorted(gdf.loc[unknown, damage_field].unique().tolist()),
+            list(DINS_DAMAGE_ORDINAL),
+        )
+        gdf = gdf[~unknown].copy()
+        ordinal = ordinal[~unknown]
+    gdf["damage_ordinal"] = ordinal.astype(int)
+
+    logger.info(
+        "load_dins_reference: %d/%d points loaded from %s → %s (categories: %s)",
+        len(gdf),
+        n_raw,
+        path.name,
+        target_crs,
+        gdf[damage_field].value_counts().to_dict(),
+    )
+    return gdf
+
+
+def cross_check_dins(
+    dins_gdf: "Any",
+    product_raster: Union[xr.DataArray, FilePath],
+    product_name: str = "dNBR",
+    *,
+    threshold: float = 0.1,
+    damaged_min_ordinal: int = 1,
+    damage_field: str = "DAMAGE",
+) -> dict[str, Any]:
+    """Cross-check a continuous severity product against DINS structure damage.
+
+    Samples ``product_raster`` at each DINS point (nearest pixel) and
+    summarises how the product value relates to the field-assessed damage
+    category:
+
+    * per-category mean / median / std / count of the sampled product value,
+    * binary detection metrics (accuracy, precision, recall, F1) where
+      "observed damaged" is ``damage_ordinal >= damaged_min_ordinal`` and
+      "predicted damaged" is ``product value >= threshold``,
+    * Spearman rank correlation between the damage ordinal and the product
+      value.
+
+    DINS is a structure-level (not pixel-level) reference: a destroyed house
+    inside a defended lot can sit on a low-dNBR pixel, so expect the rank
+    correlation to be modest even for a good product — the monotonic trend of
+    the per-category means is the more meaningful signal.
+
+    Args:
+        dins_gdf: GeoDataFrame from :func:`load_dins_reference` (must contain
+            point geometry; ``damage_ordinal`` is recomputed from
+            ``damage_field`` if absent). Must be in a projected CRS matching
+            the raster, or carry a CRS so it can be reprojected.
+        product_raster: Continuous-valued DataArray with ``y``/``x``
+            coordinates (e.g. dNBR from :func:`tanager.indices.nbr`
+            differencing) or a path to a single-band GeoTIFF.
+        product_name: Label for the product, echoed in the result dict.
+        threshold: Product value at/above which a point counts as "predicted
+            damaged". Default ``0.1``, the Key & Benson (2006)
+            unburned/burned dNBR boundary.
+        damaged_min_ordinal: Minimum ``damage_ordinal`` that counts as
+            "observed damaged". Default ``1`` (any damage, i.e. Affected+).
+        damage_field: Damage-category column used to recompute ordinals when
+            ``damage_ordinal`` is missing.
+
+    Returns:
+        Dict with keys ``product_name``, ``threshold``, ``n_points``,
+        ``n_valid``, ``n_outside``, ``per_category`` (category →
+        ``{ordinal, count, mean, median, std}``), ``binary``
+        (``{threshold, damaged_min_ordinal, tp, fp, fn, tn, accuracy,
+        precision, recall, f1}``), and ``spearman_rho``.
+
+    Raises:
+        ValueError: If no DINS point falls on a valid raster pixel.
+    """
+    if isinstance(product_raster, (str, PathLike)):
+        product_raster = _load_continuous_raster(Path(product_raster))
+
+    gdf = dins_gdf
+    raster_crs = product_raster.attrs.get("crs")
+    if raster_crs is not None and gdf.crs is not None and str(gdf.crs) != str(raster_crs):
+        logger.info(
+            "cross_check_dins: reprojecting DINS points %s → raster CRS %s",
+            gdf.crs,
+            raster_crs,
+        )
+        gdf = gdf.to_crs(raster_crs)
+
+    if "damage_ordinal" in gdf.columns:
+        ordinals = np.asarray(gdf["damage_ordinal"].values, dtype=np.int64)
+    else:
+        mapped = gdf[damage_field].map(DINS_DAMAGE_ORDINAL)
+        if mapped.isna().any():
+            raise ValueError(
+                f"Unrecognised {damage_field!r} categories "
+                f"{sorted(gdf.loc[mapped.isna(), damage_field].unique().tolist())}; "
+                "load the points with load_dins_reference() first."
+            )
+        ordinals = np.asarray(mapped.values, dtype=np.int64)
+
+    px = np.asarray(gdf.geometry.x.values, dtype=np.float64)
+    py = np.asarray(gdf.geometry.y.values, dtype=np.float64)
+    values = _sample_raster_at_points(product_raster, px, py)
+
+    outside = np.isnan(values)
+    n_outside = int(outside.sum())
+    valid = ~outside
+    n_valid = int(valid.sum())
+    if n_valid == 0:
+        raise ValueError(
+            f"No DINS point falls on a valid {product_name} pixel — check that "
+            "the raster and the points share a CRS and actually overlap."
+        )
+
+    vals_v = values[valid]
+    ords_v = ordinals[valid]
+    categories = np.asarray(gdf[damage_field].values)[valid]
+
+    per_category: dict[str, dict[str, Any]] = {}
+    for cat in sorted(np.unique(categories), key=lambda c: DINS_DAMAGE_ORDINAL.get(str(c), -1)):
+        cat_vals = vals_v[categories == cat]
+        per_category[str(cat)] = {
+            "ordinal": int(DINS_DAMAGE_ORDINAL.get(str(cat), -1)),
+            "count": int(cat_vals.size),
+            "mean": float(np.mean(cat_vals)),
+            "median": float(np.median(cat_vals)),
+            "std": float(np.std(cat_vals)),
+        }
+
+    obs_damaged = ords_v >= damaged_min_ordinal
+    pred_damaged = vals_v >= threshold
+    tp = int(np.sum(pred_damaged & obs_damaged))
+    fp = int(np.sum(pred_damaged & ~obs_damaged))
+    fn = int(np.sum(~pred_damaged & obs_damaged))
+    tn = int(np.sum(~pred_damaged & ~obs_damaged))
+    precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+    recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+
+    result = {
+        "product_name": product_name,
+        "threshold": float(threshold),
+        "n_points": int(len(gdf)),
+        "n_valid": n_valid,
+        "n_outside": n_outside,
+        "per_category": per_category,
+        "binary": {
+            "threshold": float(threshold),
+            "damaged_min_ordinal": int(damaged_min_ordinal),
+            "tp": tp,
+            "fp": fp,
+            "fn": fn,
+            "tn": tn,
+            "accuracy": float((tp + tn) / n_valid),
+            "precision": float(precision),
+            "recall": float(recall),
+            "f1": float(f1),
+        },
+        "spearman_rho": _spearman(vals_v, ords_v.astype(np.float64)),
+    }
+    logger.info(
+        "cross_check_dins: %s vs %d DINS points — spearman_rho=%.3f, "
+        "recall=%.3f @ threshold=%.2f (%d outside raster)",
+        product_name,
+        n_valid,
+        result["spearman_rho"],
+        recall,
+        threshold,
+        n_outside,
+    )
+    return result
+
+
+def _load_continuous_raster(path: Path) -> xr.DataArray:
+    """Load band 1 of a rasterio-readable file as a float DataArray (NaN nodata)."""
+    import rasterio
+
+    if not path.exists():
+        raise FileNotFoundError(f"Product raster not found: {path}")
+
+    with rasterio.open(path) as src:
+        data = src.read(1).astype(np.float64)
+        if src.nodata is not None and not np.isnan(src.nodata):
+            data = np.where(data == src.nodata, np.nan, data)
+        transform = src.transform
+        crs = src.crs
+        rows, cols = data.shape
+        xs = transform.c + (np.arange(cols) + 0.5) * transform.a
+        ys = transform.f + (np.arange(rows) + 0.5) * transform.e
+
+    da = xr.DataArray(data, dims=("y", "x"), coords={"y": ys, "x": xs})
+    if crs is not None:
+        da.attrs["crs"] = str(crs)
+    return da
+
+
+def _sample_raster_at_points(
+    raster: xr.DataArray,
+    px: np.ndarray,
+    py: np.ndarray,
+) -> np.ndarray:
+    """Sample ``raster`` at point coordinates via nearest pixel.
+
+    Points falling more than half a pixel outside the grid extent return NaN.
+    """
+    ys = np.asarray(raster["y"].values, dtype=np.float64)
+    xs = np.asarray(raster["x"].values, dtype=np.float64)
+    data = np.asarray(raster.values, dtype=np.float64)
+
+    iy, ok_y = _nearest_coord_index(ys, py)
+    ix, ok_x = _nearest_coord_index(xs, px)
+
+    out = np.full(px.shape, np.nan, dtype=np.float64)
+    ok = ok_y & ok_x
+    out[ok] = data[iy[ok], ix[ok]]
+    return out
+
+
+def _nearest_coord_index(
+    coords: np.ndarray,
+    targets: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Nearest index into a monotonic 1-D coordinate axis, with bounds mask.
+
+    Handles ascending and descending axes (raster ``y`` is typically
+    descending). Targets beyond half a pixel outside the axis extent are
+    flagged False in the returned mask.
+    """
+    if coords.size < 2:
+        idx = np.zeros(targets.shape, dtype=np.int64)
+        ok = np.isfinite(targets) if coords.size else np.zeros(targets.shape, dtype=bool)
+        return idx, ok
+
+    ascending = coords[0] <= coords[-1]
+    c = coords if ascending else coords[::-1]
+
+    pos = np.clip(np.searchsorted(c, targets), 1, len(c) - 1)
+    left = c[pos - 1]
+    right = c[pos]
+    nearest = np.where(np.abs(targets - left) <= np.abs(right - targets), pos - 1, pos)
+
+    half_step = float(np.median(np.abs(np.diff(c)))) / 2.0
+    ok = (targets >= c[0] - half_step) & (targets <= c[-1] + half_step)
+
+    if not ascending:
+        nearest = len(coords) - 1 - nearest
+    return nearest.astype(np.int64), ok
 
 
 _ArrayLike = Union[np.ndarray, xr.DataArray, Sequence[float]]

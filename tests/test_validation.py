@@ -843,3 +843,215 @@ class TestCrossValidateAviris3:
             validation.cross_validate_aviris3(
                 aviris3, tanager, library, fraction_variable="char",
             )
+
+
+# ---------------------------------------------------------------------------
+# DINS structure-damage cross-check (load_dins_reference / cross_check_dins)
+# ---------------------------------------------------------------------------
+
+# Five UTM 11N pixel-centre locations (30 m grid), one per DINS category.
+_DINS_UTM_POINTS = [
+    (350015.0, 3760135.0, "No Damage"),
+    (350045.0, 3760105.0, "Affected (1-9%)"),
+    (350075.0, 3760075.0, "Minor (10-25%)"),
+    (350105.0, 3760045.0, "Major (26-50%)"),
+    (350135.0, 3760015.0, "Destroyed (>50%)"),
+]
+
+
+def _write_synthetic_dins(path, categories=None, crs_name="urn:ogc:def:crs:OGC:1.3:CRS84"):
+    """Write a 5-point DINS-style GeoJSON in WGS84 at known UTM 11N locations."""
+    import json
+
+    from pyproj import Transformer
+
+    to_wgs84 = Transformer.from_crs("EPSG:32611", "EPSG:4326", always_xy=True)
+    cats = categories or [c for _, _, c in _DINS_UTM_POINTS]
+    features = []
+    for (utm_x, utm_y, _), cat in zip(_DINS_UTM_POINTS, cats):
+        lon, lat = to_wgs84.transform(utm_x, utm_y)
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                "properties": {"OBJECTID": len(features) + 1, "DAMAGE": cat},
+            }
+        )
+    doc = {
+        "type": "FeatureCollection",
+        "crs": {"type": "name", "properties": {"name": crs_name}},
+        "features": features,
+    }
+    path.write_text(json.dumps(doc))
+    return path
+
+
+def _synthetic_product_raster(values_at_points):
+    """10x10 UTM 11N raster (30 m pixels) with given values at the 5 test points."""
+    xs = 350015.0 + 30.0 * np.arange(10)
+    ys = 3760285.0 - 30.0 * np.arange(10)  # descending, like a GeoTIFF
+    data = np.zeros((10, 10), dtype=np.float64)
+    for (utm_x, utm_y, _), value in zip(_DINS_UTM_POINTS, values_at_points):
+        ix = int(np.argmin(np.abs(xs - utm_x)))
+        iy = int(np.argmin(np.abs(ys - utm_y)))
+        data[iy, ix] = value
+    return xr.DataArray(
+        data,
+        dims=("y", "x"),
+        coords={"y": ys, "x": xs},
+        attrs={"crs": "EPSG:32611"},
+    )
+
+
+class TestLoadDinsReference:
+    def test_reprojects_to_utm(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        gdf = validation.load_dins_reference(path)
+
+        assert str(gdf.crs) == "EPSG:32611"
+        assert len(gdf) == 5
+        # Round-trip WGS84 -> UTM must land back on the source coordinates.
+        for (utm_x, utm_y, cat), (_, row) in zip(_DINS_UTM_POINTS, gdf.iterrows()):
+            assert abs(row.geometry.x - utm_x) < 0.01
+            assert abs(row.geometry.y - utm_y) < 0.01
+            assert row["DAMAGE"] == cat
+
+    def test_damage_ordinal_column(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        gdf = validation.load_dins_reference(path)
+        assert list(gdf["damage_ordinal"]) == [0, 1, 2, 3, 4]
+
+    def test_custom_target_crs(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        gdf = validation.load_dins_reference(path, target_crs="EPSG:4326")
+        assert str(gdf.crs) == "EPSG:4326"
+        assert abs(float(gdf.geometry.x.iloc[0]) - (-118.6)) < 0.5
+
+    def test_unknown_category_dropped(self, tmp_path):
+        cats = ["No Damage", "Inaccessible", "Minor (10-25%)",
+                "Major (26-50%)", "Destroyed (>50%)"]
+        path = _write_synthetic_dins(tmp_path / "dins.geojson", categories=cats)
+        gdf = validation.load_dins_reference(path)
+        assert len(gdf) == 4
+        assert "Inaccessible" not in set(gdf["DAMAGE"])
+
+    def test_missing_file_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="DINS"):
+            validation.load_dins_reference(tmp_path / "nope.geojson")
+
+    def test_missing_damage_field_raises(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        with pytest.raises(ValueError, match="WRONG_FIELD"):
+            validation.load_dins_reference(path, damage_field="WRONG_FIELD")
+
+    def test_public_api_export(self):
+        import tanager
+
+        assert tanager.load_dins_reference is validation.load_dins_reference
+        assert tanager.cross_check_dins is validation.cross_check_dins
+        assert tanager.DINS_DAMAGE_ORDINAL is validation.DINS_DAMAGE_ORDINAL
+
+
+class TestCrossCheckDins:
+    def test_perfectly_monotonic_product(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        gdf = validation.load_dins_reference(path)
+        raster = _synthetic_product_raster([0.0, 0.2, 0.3, 0.4, 0.5])
+
+        result = validation.cross_check_dins(gdf, raster, product_name="dNBR")
+
+        assert result["product_name"] == "dNBR"
+        assert result["n_valid"] == 5
+        assert result["n_outside"] == 0
+        assert result["spearman_rho"] == pytest.approx(1.0)
+
+        pc = result["per_category"]
+        assert list(pc) == ["No Damage", "Affected (1-9%)", "Minor (10-25%)",
+                            "Major (26-50%)", "Destroyed (>50%)"]
+        assert pc["No Damage"]["mean"] == pytest.approx(0.0)
+        assert pc["Destroyed (>50%)"]["mean"] == pytest.approx(0.5)
+        assert pc["Destroyed (>50%)"]["count"] == 1
+
+        b = result["binary"]
+        # threshold=0.1: predicted damaged = [F,T,T,T,T]; observed = [F,T,T,T,T]
+        assert (b["tp"], b["fp"], b["fn"], b["tn"]) == (4, 0, 0, 1)
+        assert b["accuracy"] == pytest.approx(1.0)
+        assert b["precision"] == pytest.approx(1.0)
+        assert b["recall"] == pytest.approx(1.0)
+        assert b["f1"] == pytest.approx(1.0)
+
+    def test_threshold_configurable(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        gdf = validation.load_dins_reference(path)
+        raster = _synthetic_product_raster([0.0, 0.2, 0.3, 0.4, 0.5])
+
+        result = validation.cross_check_dins(gdf, raster, threshold=0.35)
+        b = result["binary"]
+        # predicted damaged = [F,F,F,T,T]; observed = [F,T,T,T,T]
+        assert (b["tp"], b["fp"], b["fn"], b["tn"]) == (2, 0, 2, 1)
+        assert b["recall"] == pytest.approx(0.5)
+        assert b["precision"] == pytest.approx(1.0)
+
+    def test_anticorrelated_product(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        gdf = validation.load_dins_reference(path)
+        raster = _synthetic_product_raster([0.5, 0.4, 0.3, 0.2, 0.0])
+        result = validation.cross_check_dins(gdf, raster)
+        assert result["spearman_rho"] == pytest.approx(-1.0)
+
+    def test_point_outside_raster_excluded(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        gdf = validation.load_dins_reference(path)
+        raster = _synthetic_product_raster([0.0, 0.2, 0.3, 0.4, 0.5])
+        # Shrink the raster so the last point (350135, 3760015) falls outside.
+        raster = raster.isel(y=slice(0, 9), x=slice(0, 4))
+
+        result = validation.cross_check_dins(gdf, raster)
+        assert result["n_valid"] == 4
+        assert result["n_outside"] == 1
+        assert "Destroyed (>50%)" not in result["per_category"]
+
+    def test_nan_pixels_excluded(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        gdf = validation.load_dins_reference(path)
+        raster = _synthetic_product_raster([0.0, 0.2, 0.3, 0.4, np.nan])
+        result = validation.cross_check_dins(gdf, raster)
+        assert result["n_valid"] == 4
+        assert result["n_outside"] == 1
+
+    def test_crs_mismatch_reprojects_points(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        # Points kept in WGS84; raster is UTM -> cross_check must reproject.
+        gdf = validation.load_dins_reference(path, target_crs="EPSG:4326")
+        raster = _synthetic_product_raster([0.0, 0.2, 0.3, 0.4, 0.5])
+        result = validation.cross_check_dins(gdf, raster)
+        assert result["n_valid"] == 5
+        assert result["spearman_rho"] == pytest.approx(1.0)
+
+    def test_geotiff_path_input(self, tmp_path):
+        import rasterio
+        from rasterio.transform import from_origin
+
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        gdf = validation.load_dins_reference(path)
+        raster = _synthetic_product_raster([0.0, 0.2, 0.3, 0.4, 0.5])
+
+        tif = tmp_path / "dnbr.tif"
+        transform = from_origin(350000.0, 3760300.0, 30.0, 30.0)
+        with rasterio.open(
+            tif, "w", driver="GTiff", height=10, width=10, count=1,
+            dtype="float64", crs="EPSG:32611", transform=transform,
+        ) as dst:
+            dst.write(raster.values, 1)
+
+        result = validation.cross_check_dins(gdf, tif)
+        assert result["n_valid"] == 5
+        assert result["spearman_rho"] == pytest.approx(1.0)
+
+    def test_no_overlap_raises(self, tmp_path):
+        path = _write_synthetic_dins(tmp_path / "dins.geojson")
+        gdf = validation.load_dins_reference(path)
+        raster = _synthetic_product_raster([0.0, 0.2, 0.3, 0.4, 0.5])
+        far_away = raster.assign_coords(x=raster.x + 1e6)
+        with pytest.raises(ValueError, match="No DINS point"):
+            validation.cross_check_dins(gdf, far_away)
