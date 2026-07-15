@@ -25,6 +25,12 @@ data/downloads/
 *.nc
 *.zarr/
 
+# Exception: the BAER Soil Burn Severity raster is the ground truth behind
+# notebook 02's only accuracy claim (kappa 0.527). At 198 KB it is small enough
+# to bundle, and without it that validation cannot be reproduced from a clone.
+# See data/reference/baer/README.md for coding and provenance.
+!data/reference/baer/*.tif
+
 # IDE
 .vscode/
 .idea/
