@@ -2,7 +2,7 @@
 
 **Technical Memo — Planet Tanager Open Data Competition**
 **Author:** gpriceless · **Repository:** github.com/gpriceless/tanager_fire (MIT License)
-**Study area:** Palisades and Eaton Fires, Los Angeles, CA (ignited January 7, 2025)
+**Study area:** Palisades (ignited January 7, 2025) and Hughes (ignited January 22, 2025) Fires, Los Angeles, CA
 
 ---
 
@@ -31,7 +31,7 @@ narrow water-absorption features (970, 1200, 1700, 2100 nm) — the physical bas
 moisture retrieval, critical for pre-fire risk since LFMC below ~60% marks the flammable
 regime for chaparral (Roberts et al. 2006).
 
-We apply this to the January 2025 Palisades and Eaton Fires using four Tanager-1 acquisitions
+We apply this to the January 2025 Palisades and Hughes Fires using four Tanager-1 acquisitions
 (Dec 15, 2024 pre-fire; Jan 23, 2025 post-fire, two swaths; Apr 7, 2025 recovery), and
 quantify Tanager's advantage over EMIT, PRISMA, and Sentinel-2 via spectral-response
 degradation simulation.
