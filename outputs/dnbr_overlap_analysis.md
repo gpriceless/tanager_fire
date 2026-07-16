@@ -1,7 +1,6 @@
 # Pre-Fire / Post-Fire Scene Overlap & Valid dNBR Analysis
 
 **Issue:** LGT P0 — Verify pre-fire/post-fire scene overlap for valid dNBR burn severity
-**Author:** Coder-DetrGeo
 **Date:** 2026-05-04
 
 ## Summary
@@ -94,9 +93,7 @@ This is the best valid dNBR achievable from the four Tanager scenes available. I
 | `outputs/20241215_to_20250123swath2_dnbr.png` | PNG | Quicklook with K&B colour ramp |
 | `outputs/dnbr_overlap_analysis.md` | Markdown | This document |
 
-## Recommendations for follow-up work
+## Known spatial coverage limitations
 
-1. **Wire swath 2 into `scripts/run_pipeline.py`.** The pipeline currently pairs `20250123 → 20250407` (post-post recovery). Replace that pair with `20241215 → 20250123_185518_92_4001` for the headline burn-severity product, and keep the recovery pair as a separate "vegetation recovery" output with explicit naming.
-2. **Pre-fire scene for the eastern Palisades / Eaton fires is still missing.** No Tanager pre-fire scene in the catalog covers (-118.59 to -118.10 °W, 34.04 – 34.20 °N), the eastern Palisades and Eaton fire footprint. Submission may need to fall back to AVIRIS-3 or Landsat-9 for those areas.
-3. **Pre-fire scene for the Hughes fire (Jan 23 swath 1 / Apr 7 footprint) does not exist in the local data.** No Tanager pre-fire scene covers ~34.4 – 34.7 °N, -118.7 to -118.4 °W. Either source one from STAC, or limit the Tanager submission to the Palisades fire area only.
-4. **The download-on-demand path matters.** `tanager.catalog.download_scene(item, "ortho_sr_hdf5", DATA_DIR)` works as documented; the swath-2 file (`20250123_185518_92_4001_ortho_sr_hdf5.h5`, 1.34 GB) was downloaded with a single `curl` and lands at the path expected by the rest of the pipeline.
+1. **Eastern Palisades coverage gap.** The pre-fire scene (20241215) extends to -118.59 °W. The Palisades fire footprint extends to -118.50 °W. The easternmost ~6 km (Pacific Palisades neighbourhood) falls outside the pre-fire/post-fire overlap and has no dNBR. This limits the validated dNBR to the western Palisades / Topanga front.
+2. **No pre-fire baseline for Hughes.** No Tanager pre-fire scene covers the Hughes fire area (~34.4–34.7 °N). Only single-date post-fire NBR is available (validated against BAER SBS, Cohen's kappa = 0.509). dNBR-based severity sub-classification is not possible for Hughes.
