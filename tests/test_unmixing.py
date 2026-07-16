@@ -408,14 +408,14 @@ class TestPlotting:
 
 
 # ---------------------------------------------------------------------------
-# Wave 4 acceptance — pure-pixel coverage across all canonical classes
+# Acceptance — pure-pixel coverage across all canonical classes
 # ---------------------------------------------------------------------------
 
 
 class TestPurePixelRecoveryAllClasses:
-    """Section 9 acceptance: pure-pixel fractions for every canonical class.
+    """Acceptance: pure-pixel fractions for every canonical class.
 
-    The Wave 2 suite verifies char/pv/npv/soil individually inside the NNLS
+    The core suite verifies char/pv/npv/soil individually inside the NNLS
     fallback test. These tests assert the same behaviour with explicit
     threshold checks per class so a regression in any single endmember is
     caught directly.
@@ -441,7 +441,7 @@ class TestPurePixelRecoveryAllClasses:
 
 
 # ---------------------------------------------------------------------------
-# Wave 4 acceptance — constraint filtering edge cases
+# Acceptance — constraint filtering edge cases
 # ---------------------------------------------------------------------------
 
 
@@ -465,7 +465,7 @@ class TestConstraintEdges:
 
 
 # ---------------------------------------------------------------------------
-# Wave 4 acceptance — shade normalization rounds to 1.0 across columns
+# Acceptance — shade normalization rounds to 1.0 across columns
 # ---------------------------------------------------------------------------
 
 

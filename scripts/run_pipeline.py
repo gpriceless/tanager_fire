@@ -276,7 +276,7 @@ def stage_lfmc_indices(scene: xr.Dataset, scene_id: str, out_dir: Path,
 
     The underlying ``continuum_removal`` was vectorized (monotone-chain core +
     joblib chunked parallelism, commit 06d5671) so the full ~564k-pixel scene
-    now fits within the heartbeat budget. Pass an explicit ``crop`` for unit
+    now fits within the runtime budget. Pass an explicit ``crop`` for unit
     tests or local debugging; production runs use ``crop=None`` (full scene)
     so the LFMC products cover the burn footprint, not a 7.7×7.7 km tile.
 
@@ -550,7 +550,7 @@ def stage_dnbr(pre: xr.Dataset, post: xr.Dataset, label: str, out_dir: Path) -> 
 
 # Center crop in pixels used by stage_sensor_comparison. SPy BandResampler
 # iterates per-pixel inside simulate_sensor(), so we bound the grid to keep
-# heartbeat runtime predictable. 128 px gives 16 384 sample points — enough
+# runtime predictable. 128 px gives 16 384 sample points — enough
 # for stable R²/RMSE while remaining well under the LFMC stage budget.
 _SENSOR_COMPARISON_CROP_PX: int = 128
 
@@ -794,7 +794,7 @@ def write_report(scene_reports: list[SceneReport], multi_stages: list[StageResul
         "- **`compute_lfmc_indices` runs on the full scene.** The "
         "continuum-removal pass is now vectorized (monotone-chain hull core "
         "with joblib chunked parallelism, ~25k pixels per chunk) so the full "
-        "~564k-pixel scene fits within the heartbeat budget. The earlier "
+        "~564k-pixel scene fits within the runtime budget. The earlier "
         "256x256 center-crop workaround has been removed; LFMC products now "
         "cover the burn footprint."
     )
