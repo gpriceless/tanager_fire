@@ -58,6 +58,10 @@ target-version = "py310"
 select = ["E", "F", "W", "I"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Standalone script inserts src/ on sys.path before importing tanager.
+"scripts/run_aviris3_validation.py" = ["E402"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 # Slow tests (full notebook execution) are opt-in: the default suite excludes

@@ -5,7 +5,7 @@ fuel moisture estimation for the 2025 LA wildfires.**
 
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-843%20passing-brightgreen)](tests/)
+[![Tests](https://img.shields.io/badge/tests-926%20passing-brightgreen)](tests/)
 
 FireSpec is an open-source Python toolkit built for the [Planet Tanager Open Data
 Competition](#competition). It turns Tanager-1's 426-band hyperspectral imagery (380–2500 nm,
