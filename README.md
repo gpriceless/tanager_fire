@@ -132,6 +132,26 @@ make notebooks    # jupyter nbconvert --execute notebooks/*.ipynb
 make figures      # export publication figures to figures/
 ```
 
+### Cross-sensor validation data (AVIRIS-3)
+
+Burn-severity output is validated against NASA JPL **AVIRIS-3** L2A reflectance
+([ORNL DAAC, DOI 10.3334/ORNLDAAC/2357](https://doi.org/10.3334/ORNLDAAC/2357)). The raw cubes
+are ~24 GB and are **not** stored in this repo. Fetch them with a free
+[NASA Earthdata](https://urs.earthdata.nasa.gov/) login:
+
+```bash
+scripts/download_aviris3.sh    # reads data/raw/aviris3/aviris3_jan23_palisades_urls.txt; needs ~/.netrc
+```
+
+So the validation still reproduces **without** the full download, three derived artifacts are
+committed:
+
+| Artifact | What it is |
+|----------|------------|
+| `outputs/aviris3_validation/tanager_palisades_fractions.nc` | Tanager MESMA char/ash fractions over Palisades (24 MB) |
+| `outputs/aviris3_validation/cross_validation_results.json` | Per-granule cross-sensor accuracy metrics |
+| `data/reference/dins/palisades_dins.geojson` | CAL FIRE DINS structure-damage reference (public) |
+
 ---
 
 ## API Reference

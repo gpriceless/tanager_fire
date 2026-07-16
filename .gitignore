@@ -31,6 +31,16 @@ data/downloads/
 # See data/reference/baer/README.md for coding and provenance.
 !data/reference/baer/*.tif
 
+# Exception: the AVIRIS-3 granule URL list (~3 KB) lets scripts/download_aviris3.sh
+# fetch the ~24 GB validation cubes, which themselves stay out of git.
+!data/raw/aviris3/
+data/raw/aviris3/*
+!data/raw/aviris3/aviris3_jan23_palisades_urls.txt
+
+# Exception: the derived AVIRIS-3 MESMA fraction cube (24 MB) is committed so the
+# cross-sensor validation reproduces without the full 24 GB raw download.
+!outputs/aviris3_validation/tanager_palisades_fractions.nc
+
 # IDE
 .vscode/
 .idea/
